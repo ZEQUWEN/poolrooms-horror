@@ -6,7 +6,14 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
 button, input, select { font: inherit; }
 #app, #game-canvas { width: 100vw; height: 100vh; display: block; }
 #game-canvas { position: fixed; inset: 0; }
-#game-canvas::after { content: ''; }
+
+/* In-game overlays */
+#underwater-overlay { position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0; transition: opacity .3s ease; background: radial-gradient(ellipse at center, rgba(60, 225, 240, .06) 20%, rgba(2, 45, 60, .6) 100%); }
+body.is-submerged #underwater-overlay { opacity: 1; }
+#crosshair { position: fixed; left: 50%; top: 50%; z-index: 2; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: rgba(236, 255, 255, .85); box-shadow: 0 0 6px rgba(80, 240, 255, .8); opacity: 0; transition: opacity .2s ease; pointer-events: none; }
+body.is-playing #crosshair { opacity: 1; }
+
+/* Main menu */
 .screen-panel, .dialog-panel { position: fixed; inset: 0; z-index: 1; }
 .screen-panel { display: grid; place-items: center; background: linear-gradient(110deg, rgba(1, 9, 15, .73), rgba(5, 19, 31, .2) 56%, rgba(255, 35, 175, .1)); transition: opacity .45s ease, visibility .45s ease; }
 .screen-panel::before { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 74% 55%, rgba(45, 236, 255, .22), transparent 32%), radial-gradient(circle at 20% 48%, rgba(255, 40, 175, .17), transparent 28%); pointer-events: none; }
@@ -23,7 +30,11 @@ h2 { font-size: 2rem; }
 .primary-button { min-width: 245px; padding: 15px 20px; border: 1px solid #bffcff; background: rgba(17, 233, 249, .16); color: #efffff; box-shadow: inset 0 0 25px rgba(45, 235, 255, .13), 0 0 22px rgba(45, 235, 255, .23); }
 .primary-button:hover, .text-button:hover { transform: translateY(-2px); }
 .text-button { padding: 9px 15px; background: transparent; color: #ffe4f5; text-decoration: underline; text-underline-offset: 5px; }
-.menu-hint { margin: 44px auto 0; max-width: 400px; color: rgba(223, 253, 255, .63); font-size: .69rem; line-height: 1.75; }
+.controls-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 22px; margin: 34px 0 0; padding: 0; list-style: none; color: rgba(223, 253, 255, .78); font-size: .68rem; }
+kbd { padding: 2px 6px; border: 1px solid rgba(117, 255, 255, .45); background: rgba(8, 40, 50, .6); color: #bffcff; font: inherit; font-size: .62rem; }
+.menu-hint { margin: 22px auto 0; max-width: 420px; color: rgba(223, 253, 255, .63); font-size: .69rem; line-height: 1.75; }
+
+/* Settings dialog */
 .dialog-panel { display: grid; place-items: center; z-index: 3; padding: 18px; background: rgba(0, 8, 13, .62); opacity: 0; visibility: hidden; transition: opacity .22s ease, visibility .22s ease; }
 .dialog-panel.is-open { opacity: 1; visibility: visible; }
 .dialog-card { width: min(100%, 510px); padding: 27px; background: linear-gradient(145deg, rgba(9, 34, 43, .96), rgba(17, 12, 37, .96)); border: 1px solid rgba(129, 244, 255, .45); box-shadow: 0 0 48px rgba(21, 234, 255, .22), inset 0 0 45px rgba(255, 46, 188, .05); }
@@ -36,5 +47,9 @@ output { color: #75ffff; }
 input[type='range'], select { width: 100%; accent-color: #44eefa; }
 select { padding: 10px; border: 1px solid rgba(124, 247, 255, .35); background: #0b2632; color: #eaffff; }
 .field-help { margin: 11px 0 0; color: rgba(218, 249, 255, .67); font-size: .67rem; line-height: 1.55; }
+
+/* HUD */
 #hud { position: fixed; inset: auto 18px 15px; z-index: 2; display: flex; justify-content: space-between; color: rgba(213, 253, 255, .72); font-size: .6rem; letter-spacing: .13em; pointer-events: none; }
+body[data-player-state='aquatic'] #player-state { color: #75ffff; }
+body.is-submerged #player-state { color: #ff8ed4; }
 @media (max-width: 480px) { .dialog-card { padding: 20px; } #hud { font-size: .48rem; } }

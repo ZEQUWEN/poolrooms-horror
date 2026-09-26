@@ -1,117 +1,126 @@
 import * as THREE from 'three';
+import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { QUALITY_PROFILES } from './settings.js';
+import { PoolRoom } from './world/PoolRoom.js';
+import { Water } from './world/Water.js';
+import { PlayerController } from './player/PlayerController.js';
 
-export class PoolroomsPreview {
+const AIR_FOG = new THREE.Color('#08212a');
+const WATER_FOG = new THREE.Color('#0a5a66');
+const UNDERWATER_FOG_MULTIPLIER = 2.8;
+
+export class GameEngine {
   constructor(canvas, settings) {
     this.canvas = canvas;
-    this.settings = settings;
     this.clock = new THREE.Clock();
+    this.submerged = false;
+    this.profile = QUALITY_PROFILES.medium;
+
+    // Required for RectAreaLight to affect MeshStandard/MeshPhysical materials.
+    RectAreaLightUniformsLib.init();
+
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.4;
+    this.renderer.toneMappingExposure = 1.25;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#06141a');
-    this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 100);
-    this.camera.position.set(0, 2.8, 9.5);
-    this.camera.lookAt(0, 1.1, 0);
+    this.scene.background = AIR_FOG.clone();
+    this.scene.fog = new THREE.FogExp2(AIR_FOG.clone(), this.profile.fogDensity);
+    this.camera = new THREE.PerspectiveCamera(72, 1, 0.05, 120);
 
-    this.createRoom();
+    // Environment map is used only by the water, for specular reflections.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+
+    this.world = new PoolRoom();
+    this.scene.add(this.world.group);
+
+    const { pool } = this.world.layout;
+    this.water = new Water({
+      width: pool.maxX - pool.minX,
+      length: pool.maxZ - pool.minZ,
+      level: this.world.waterLevel,
+      centerX: (pool.minX + pool.maxX) / 2,
+      centerZ: (pool.minZ + pool.maxZ) / 2,
+      envMap: this.environment
+    });
+    this.scene.add(this.water.mesh);
+
+    this.createLights();
+
+    this.player = new PlayerController(this.camera, canvas, this.world, this.water);
+    this.player.addEventListener('statechange', (event) => {
+      this.submerged = event.detail.submerged;
+      this.updateFog();
+    });
+
     this.resize();
     window.addEventListener('resize', () => this.resize());
     settings.subscribe((values, changedKey) => {
       if (changedKey === 'quality' || changedKey === null) this.applyQuality(values.quality);
     });
-    this.renderer.setAnimationLoop(() => this.render());
+    this.renderer.setAnimationLoop(() => this.frame());
   }
 
-  createRoom() {
-    const tileTexture = this.createTileTexture();
-    const tileMaterial = new THREE.MeshStandardMaterial({ map: tileTexture, roughness: 0.6, metalness: 0.04, color: '#d7eff0' });
-    const wallMaterial = tileMaterial.clone();
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(22, 22), tileMaterial);
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    this.scene.add(floor);
+  createLights() {
+    this.scene.add(new THREE.HemisphereLight('#bff9ff', '#0a1c22', 1.1));
 
-    const backWall = new THREE.Mesh(new THREE.PlaneGeometry(22, 8), wallMaterial);
-    backWall.position.set(0, 4, -6);
-    backWall.receiveShadow = true;
-    this.scene.add(backWall);
+    const ceiling = new THREE.RectAreaLight('#c8f8ff', 7, 14, 0.9);
+    ceiling.position.set(0, this.world.layout.height - 0.05, -2);
+    ceiling.lookAt(0, 0, -2);
+    this.scene.add(ceiling);
 
-    const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(14, 8), wallMaterial.clone());
-    leftWall.position.set(-7, 4, 1);
-    leftWall.rotation.y = Math.PI / 2;
-    this.scene.add(leftWall);
+    this.magentaLight = this.createShadowLight('#ff3cb4', 42, [-9.5, 3.2, -2]);
+    this.cyanLight = this.createShadowLight('#2fe9ff', 38, [9.5, 2.6, -3]);
+    this.shadowLights = [this.magentaLight, this.cyanLight];
 
-    const waterGeometry = new THREE.PlaneGeometry(12.5, 8, 45, 45);
-    this.water = new THREE.Mesh(waterGeometry, new THREE.MeshPhysicalMaterial({
-      color: '#37d8e8', transparent: true, opacity: 0.76, roughness: 0.12, metalness: 0.18,
-      clearcoat: 0.9, clearcoatRoughness: 0.08
-    }));
-    this.water.rotation.x = -Math.PI / 2;
-    this.water.position.set(0, 0.08, -0.7);
-    this.scene.add(this.water);
-
-    const archMaterial = new THREE.MeshStandardMaterial({ map: tileTexture, roughness: 0.68, color: '#d9eef0' });
-    for (const [x, z, radius] of [[0, -5.85, 3.3], [0, -4.9, 2.25]]) {
-      const arch = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.28, 12, 48, Math.PI), archMaterial);
-      arch.position.set(x, radius, z);
-      arch.rotation.y = Math.PI;
-      arch.castShadow = true;
-      this.scene.add(arch);
-    }
-
-    const ceilingLight = new THREE.RectAreaLight('#b8f6ff', 14, 10, 1.2);
-    ceilingLight.position.set(0, 6.3, 0);
-    ceilingLight.rotation.x = Math.PI / 2;
-    this.scene.add(ceilingLight);
-
-    this.magentaLight = new THREE.PointLight('#ff3cb4', 22, 13, 2);
-    this.magentaLight.position.set(-4.8, 3, 1);
-    this.magentaLight.castShadow = true;
-    this.scene.add(this.magentaLight);
-
-    this.cyanLight = new THREE.PointLight('#2fe9ff', 25, 14, 2);
-    this.cyanLight.position.set(4.4, 2.4, -1.2);
-    this.cyanLight.castShadow = true;
-    this.scene.add(this.cyanLight);
-
-    this.scene.add(new THREE.HemisphereLight('#b8ffff', '#07141b', 1.4));
+    // Underwater glow, similar to recessed pool lamps in the references.
+    this.poolGlow = new THREE.PointLight('#35f2ff', 10, 11, 2);
+    this.poolGlow.position.set(0, -1.1, -2);
+    this.scene.add(this.poolGlow);
   }
 
-  createTileTexture() {
-    const tileCanvas = document.createElement('canvas');
-    tileCanvas.width = tileCanvas.height = 256;
-    const context = tileCanvas.getContext('2d');
-    context.fillStyle = '#d4e7e5';
-    context.fillRect(0, 0, 256, 256);
-    context.strokeStyle = '#789a9e';
-    context.lineWidth = 4;
-    for (let position = 0; position <= 256; position += 32) {
-      context.beginPath(); context.moveTo(position, 0); context.lineTo(position, 256); context.stroke();
-      context.beginPath(); context.moveTo(0, position); context.lineTo(256, position); context.stroke();
-    }
-    const texture = new THREE.CanvasTexture(tileCanvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(7, 7);
-    return texture;
+  createShadowLight(color, intensity, position) {
+    const light = new THREE.PointLight(color, intensity, 20, 2);
+    light.position.set(...position);
+    light.castShadow = true;
+    light.shadow.bias = -0.0015;
+    light.shadow.normalBias = 0.02;
+    light.shadow.camera.near = 0.1;
+    light.shadow.camera.far = 22;
+    this.scene.add(light);
+    return light;
   }
 
   applyQuality(name) {
-    const profile = QUALITY_PROFILES[name];
-    this.profile = profile;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, profile.pixelRatio));
-    [this.magentaLight, this.cyanLight].forEach((light) => {
-      light.shadow.mapSize.set(profile.shadowMapSize, profile.shadowMapSize);
-      light.shadow.needsUpdate = true;
-    });
-    this.scene.fog = new THREE.FogExp2('#08212a', profile.fogDensity);
+    this.profile = QUALITY_PROFILES[name] ?? QUALITY_PROFILES.medium;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.profile.pixelRatio));
+    for (const light of this.shadowLights) {
+      light.shadow.mapSize.set(this.profile.shadowMapSize, this.profile.shadowMapSize);
+      // Dispose the old render target so the renderer allocates one at the new size.
+      if (light.shadow.map) {
+        light.shadow.map.dispose();
+        light.shadow.map = null;
+      }
+    }
+    this.updateFog();
     this.resize();
+  }
+
+  baseFogDensity() {
+    return this.profile.fogDensity * (this.submerged ? UNDERWATER_FOG_MULTIPLIER : 1);
+  }
+
+  updateFog() {
+    const color = this.submerged ? WATER_FOG : AIR_FOG;
+    this.scene.fog.color.copy(color);
+    this.scene.background.copy(color);
+    this.scene.fog.density = this.baseFogDensity();
   }
 
   resize() {
@@ -121,18 +130,20 @@ export class PoolroomsPreview {
     this.renderer.setSize(clientWidth, clientHeight, false);
   }
 
-  render() {
-    const elapsed = this.clock.getElapsedTime();
-    const position = this.water.geometry.attributes.position;
-    for (let index = 0; index < position.count; index += 1) {
-      const x = position.getX(index);
-      const y = position.getY(index);
-      position.setZ(index, Math.sin(x * 1.4 + elapsed * 1.1) * 0.045 + Math.cos(y * 1.1 + elapsed * 0.9) * 0.035);
-    }
-    position.needsUpdate = true;
-    if (this.profile?.dynamicFog) this.scene.fog.density = this.profile.fogDensity + Math.sin(elapsed * 0.35) * 0.004;
-    this.magentaLight.intensity = 20 + Math.sin(elapsed * 0.7) * 2;
-    this.cyanLight.intensity = 23 + Math.cos(elapsed * 0.55) * 2;
+  frame() {
+    const delta = this.clock.getDelta();
+    const elapsed = this.clock.elapsedTime;
+
+    this.water.update(elapsed);
+    this.player.update(delta, elapsed);
+
+    const baseDensity = this.baseFogDensity();
+    this.scene.fog.density = this.profile.dynamicFog
+      ? baseDensity * (1 + Math.sin(elapsed * 0.35) * 0.08)
+      : baseDensity;
+
+    this.magentaLight.intensity = 42 + Math.sin(elapsed * 0.7) * 3;
+    this.cyanLight.intensity = 38 + Math.cos(elapsed * 0.55) * 3;
     this.renderer.render(this.scene, this.camera);
   }
 }
