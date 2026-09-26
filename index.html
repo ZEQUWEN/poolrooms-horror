@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#06141a" />
+    <title>Poolrooms: Endless Abandoned</title>
+  </head>
+  <body>
+    <main id="app">
+      <canvas id="game-canvas" aria-label="Poolrooms visual preview"></canvas>
+
+      <section id="main-menu" class="screen-panel" aria-labelledby="game-title">
+        <div class="menu-noise" aria-hidden="true"></div>
+        <div class="menu-content">
+          <p class="eyebrow">LEVEL 37</p>
+          <h1 id="game-title">POOLROOMS</h1>
+          <p class="subtitle">ENDLESS ABANDONED</p>
+          <div class="menu-actions">
+            <button id="play-button" class="primary-button" type="button">Enter the water</button>
+            <button id="settings-button" class="text-button" type="button">Settings</button>
+          </div>
+          <p class="menu-hint">A settings preview is available now. Exploration begins in Step 2.</p>
+        </div>
+      </section>
+
+      <section id="settings-panel" class="dialog-panel" aria-labelledby="settings-title" aria-hidden="true">
+        <div class="dialog-card">
+          <div class="dialog-header">
+            <div>
+              <p class="eyebrow">SYSTEM</p>
+              <h2 id="settings-title">Settings</h2>
+            </div>
+            <button id="close-settings" class="icon-button" type="button" aria-label="Close settings">×</button>
+          </div>
+
+          <form id="settings-form">
+            <fieldset>
+              <legend>Audio</legend>
+              <label for="master-volume">Master <output id="master-value">80%</output></label>
+              <input id="master-volume" data-setting="masterVolume" type="range" min="0" max="100" value="80" />
+
+              <label for="ambient-volume">Ambient <output id="ambient-value">65%</output></label>
+              <input id="ambient-volume" data-setting="ambientVolume" type="range" min="0" max="100" value="65" />
+
+              <label for="sfx-volume">SFX <output id="sfx-value">75%</output></label>
+              <input id="sfx-volume" data-setting="sfxVolume" type="range" min="0" max="100" value="75" />
+            </fieldset>
+
+            <fieldset>
+              <legend>Graphics</legend>
+              <label for="graphics-quality">Quality</label>
+              <select id="graphics-quality" data-setting="quality">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+              </select>
+              <p id="quality-description" class="field-help"></p>
+            </fieldset>
+          </form>
+        </div>
+      </section>
+
+      <div id="hud" aria-live="polite"><span>37.0</span><span id="quality-indicator">MEDIUM</span><span>ESC SETTINGS</span></div>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
