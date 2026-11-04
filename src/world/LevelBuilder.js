@@ -16,7 +16,7 @@ const FLOOR_OFFSETS = [0, GEN_CONFIG.floorGap, -GEN_CONFIG.floorGap];
  * modules, so this class is a thin geometry shell.
  */
 export class LevelBuilder {
-  constructor(level, { envMap = null } = {}) {
+  constructor(level, { envMap = null, segCap = 64 } = {}) {
     this.level = level;
     this.materials = createMaterials();
     this.group = new THREE.Group();
@@ -45,7 +45,7 @@ export class LevelBuilder {
         floorGroup.add(corridorGroup);
       }
 
-      const waterSystem = new WaterSystem(floor.waterBodies, { envMap });
+      const waterSystem = new WaterSystem(floor.waterBodies, { envMap, segCap });
       floorGroup.add(waterSystem.group);
       this.waterSystems.push(waterSystem);
       this.group.add(floorGroup);

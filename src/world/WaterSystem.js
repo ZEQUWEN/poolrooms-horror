@@ -7,7 +7,7 @@ import { Water } from './Water.js';
  * submersion) live in LevelCollider so logic stays independent of Three.js.
  */
 export class WaterSystem {
-  constructor(bodies, { envMap = null } = {}) {
+  constructor(bodies, { envMap = null, segCap = 64 } = {}) {
     this.bodies = bodies;
     this.group = new THREE.Group();
     this.surfaces = bodies.map((body) => {
@@ -19,7 +19,8 @@ export class WaterSystem {
         level: body.level,
         centerX: body.centerX ?? (body.rect.x0 + body.rect.x1) / 2,
         centerZ: body.centerZ ?? (body.rect.z0 + body.rect.z1) / 2,
-        envMap
+        envMap,
+        segCap
       });
       this.group.add(water.mesh);
       return water;

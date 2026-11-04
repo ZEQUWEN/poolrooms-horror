@@ -9,6 +9,11 @@ const AIR_FOG = new THREE.Color('#08212a');
 const WATER_FOG = new THREE.Color('#0a5a66');
 const UNDERWATER_FOG_MULTIPLIER = 2.8;
 const MAX_POINT_LIGHTS = 14;
+const MOBILE_POINT_LIGHTS = 8;
+
+export function isCoarsePointer() {
+  return typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches === true;
+}
 
 function pickSeed() {
   const param = new URLSearchParams(window.location.search).get('seed');
@@ -23,8 +28,11 @@ export class GameEngine {
     this.submerged = false;
     this.profile = QUALITY_PROFILES.medium;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.shadowMap.enabled = true;
+    this.coarse = isCoarsePointer();
+    this.maxPointLights = this.coarse ? MOBILE_POINT_LIGHTS : MAX_POINT_LIGHTS;
+
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.coarse });
+    this.renderer.shadowMap.enabled = !this.coarse;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -42,7 +50,7 @@ export class GameEngine {
 
     this.seed = pickSeed();
     this.level = generateLevel({ seed: this.seed, roomCount: 7 });
-    this.world = new LevelBuilder(this.level, { envMap: this.environment });
+    this.world = new LevelBuilder(this.level, { envMap: this.environment, segCap: this.coarse ? 20 : 64 });
     this.scene.add(this.world.group);
 
     this.createLights();
@@ -75,7 +83,7 @@ export class GameEngine {
       const lights = index === 0 ? floor.lights : floor.lights.filter((spec) => spec.intensity > 20);
       for (const spec of lights) specs.push({ spec, offset: this.world.floorOffset(index) });
     });
-    for (const { spec, offset } of specs.slice(0, MAX_POINT_LIGHTS)) {
+    for (const { spec, offset } of specs.slice(0, this.maxPointLights)) {
       const light = new THREE.PointLight(spec.color, spec.intensity, spec.distance, 2);
       light.position.set(spec.position[0], spec.position[1] + offset, spec.position[2]);
       this.scene.add(light);
@@ -99,7 +107,7 @@ export class GameEngine {
   createShadowLight(color, intensity, position) {
     const light = new THREE.PointLight(color, intensity, 20, 2);
     light.position.set(...position);
-    light.castShadow = true;
+    light.castShadow = !this.coarse;
     light.shadow.bias = -0.0015;
     light.shadow.normalBias = 0.02;
     light.shadow.camera.near = 0.1;
@@ -110,7 +118,9 @@ export class GameEngine {
 
   applyQuality(name) {
     this.profile = QUALITY_PROFILES[name] ?? QUALITY_PROFILES.medium;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.profile.pixelRatio));
+    // Mobile GPUs: cap the drawing buffer even on higher profiles.
+    const ratioCap = this.coarse ? 1.35 : 4;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.profile.pixelRatio, ratioCap));
     for (const light of this.shadowLights) {
       light.shadow.mapSize.set(this.profile.shadowMapSize, this.profile.shadowMapSize);
       // Dispose the old render target so the renderer allocates one at the new size.

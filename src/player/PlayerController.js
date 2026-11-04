@@ -50,8 +50,11 @@ export class PlayerController extends EventTarget {
     this.waterAtFeet = null;
     this.controls = new PointerLockControls(camera, domElement);
     this.controls.pointerSpeed = 0.85;
+    camera.rotation.order = 'YXZ';
 
-    this.input = { forward: false, backward: false, left: false, right: false, crouch: false };
+    this.input = { forward: false, backward: false, left: false, right: false, crouch: false, axis: { x: 0, y: 0 } };
+    this.look = { yaw: 0, pitch: 0 };
+    this.mobileActive = false;
     this.feet = spawn.clone();
     this.floor = spawn.floor ?? 0;
     this.velocity = new THREE.Vector3();
@@ -77,6 +80,31 @@ export class PlayerController extends EventTarget {
     return this.controls.isLocked;
   }
 
+  /** True while gameplay input is live: pointer lock on desktop, touch UI on phones. */
+  get isActive() {
+    return this.controls.isLocked || this.mobileActive;
+  }
+
+  /** Touch mode on/off: syncs the look euler with the current camera pose. */
+  setMobileActive(on) {
+    this.mobileActive = on;
+    if (on) {
+      const euler = new THREE.Euler().setFromQuaternion(this.camera.quaternion, 'YXZ');
+      this.look.yaw = euler.y;
+      this.look.pitch = euler.x;
+    } else {
+      this.clearInput();
+    }
+    this.dispatchEvent(new CustomEvent('playmode', { detail: { playing: on } }));
+  }
+
+  /** Apply a yaw/pitch state (from lookMath.applyLookDelta). */
+  applyLook(look) {
+    this.look.yaw = look.yaw;
+    this.look.pitch = look.pitch;
+    this.camera.rotation.set(this.look.pitch, this.look.yaw, 0);
+  }
+
   lock() {
     this.controls.lock();
   }
@@ -89,7 +117,7 @@ export class PlayerController extends EventTarget {
   handleKey(event, pressed) {
     const action = KEY_BINDINGS[event.code];
     if (!action) return;
-    if (!this.controls.isLocked) {
+    if (!this.isActive) {
       this.input[action] = false;
       return;
     }
@@ -106,7 +134,7 @@ export class PlayerController extends EventTarget {
     const config = PLAYER_CONFIG;
     this.waterAtFeet = this.world.getWaterState(this.feet.x, this.feet.z, elapsed, this.floor);
     const inWater = this.waterAtFeet !== null && this.feet.y < this.waterAtFeet.level - config.waterEntryMargin;
-    const crouching = this.controls.isLocked && this.input.crouch;
+    const crouching = this.isActive && this.input.crouch;
 
     // Movement direction on the horizontal plane, relative to the view yaw.
     this.camera.getWorldDirection(this.forward);
@@ -115,11 +143,18 @@ export class PlayerController extends EventTarget {
     this.right.crossVectors(this.forward, this.camera.up).normalize();
 
     this.wish.set(0, 0, 0);
-    if (this.input.forward) this.wish.add(this.forward);
-    if (this.input.backward) this.wish.sub(this.forward);
-    if (this.input.right) this.wish.add(this.right);
-    if (this.input.left) this.wish.sub(this.right);
-    if (this.wish.lengthSq() > 0) this.wish.normalize();
+    if (Math.abs(this.input.axis.x) > 0.001 || Math.abs(this.input.axis.y) > 0.001) {
+      // Analog touch joystick: blend forward/right vectors, clamp to unit length.
+      this.wish.addScaledVector(this.forward, this.input.axis.y);
+      this.wish.addScaledVector(this.right, this.input.axis.x);
+      if (this.wish.lengthSq() > 1) this.wish.normalize();
+    } else {
+      if (this.input.forward) this.wish.add(this.forward);
+      if (this.input.backward) this.wish.sub(this.forward);
+      if (this.input.right) this.wish.add(this.right);
+      if (this.input.left) this.wish.sub(this.right);
+      if (this.wish.lengthSq() > 0) this.wish.normalize();
+    }
 
     let speed = crouching ? config.crouchSpeed : config.walkSpeed;
     if (this.submerged) speed *= config.submergedSpeedFactor;

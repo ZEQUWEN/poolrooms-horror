@@ -11,6 +11,19 @@ npm test        # layout and collision tests
 npm run build   # production build
 ```
 
+## Mobile controls
+
+On touch devices (pointer: coarse) the game switches to a smartphone layout:
+
+- left half of the screen — floating virtual joystick (move / wade);
+- right half — drag to look around;
+- CRCH button — toggle crouch (hold-crouch on desktop), needed to dive;
+- ❚ button — pause back to the menu.
+
+Mobile runs are also cheaper: Low quality by default, capped pixel ratio,
+no shadow maps, fewer point lights and coarser water meshes. Desktop keeps
+mouse + keyboard with pointer lock.
+
 ## Controls
 
 | Input | Action |

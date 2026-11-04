@@ -17,7 +17,7 @@ function getSharedNormals() {
  * - Small vertex swell; segment count scales with the body size.
  */
 export class Water {
-  constructor({ width, length, level, centerX = 0, centerZ = 0, envMap = null }) {
+  constructor({ width, length, level, centerX = 0, centerZ = 0, envMap = null, segCap = 64 }) {
     this.level = level;
     this.centerX = centerX;
     this.centerZ = centerZ;
@@ -53,8 +53,9 @@ export class Water {
       depthWrite: false
     });
 
-    const segX = Math.max(6, Math.min(64, Math.round(width * 3)));
-    const segZ = Math.max(6, Math.min(64, Math.round(length * 3)));
+    const cap = Math.max(8, Math.min(64, segCap));
+    const segX = Math.max(6, Math.min(cap, Math.round(width * 3)));
+    const segZ = Math.max(6, Math.min(cap, Math.round(length * 3)));
     const geometry = new THREE.PlaneGeometry(width, length, segX, segZ);
     this.basePositions = Float32Array.from(geometry.attributes.position.array);
     this.mesh = new THREE.Mesh(geometry, this.material);
