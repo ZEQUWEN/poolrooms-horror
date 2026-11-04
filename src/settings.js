@@ -27,7 +27,9 @@ export const QUALITY_PROFILES = {
   }
 };
 
-const defaults = { masterVolume: 80, ambientVolume: 65, sfxVolume: 75, quality: 'medium' };
+// Phones and tablets start on the cheap profile; desktops on Medium.
+const COARSE = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches === true;
+const defaults = { masterVolume: 80, ambientVolume: 65, sfxVolume: 75, touchSensitivity: 100, quality: COARSE ? 'low' : 'medium' };
 
 export class SettingsStore {
   constructor() {

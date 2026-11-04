@@ -1,14 +1,25 @@
 import * as THREE from 'three';
-import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { QUALITY_PROFILES } from './settings.js';
-import { PoolRoom } from './world/PoolRoom.js';
-import { Water } from './world/Water.js';
+import { generateLevel } from './world/levelGen.js';
+import { LevelBuilder } from './world/LevelBuilder.js';
 import { PlayerController } from './player/PlayerController.js';
 
 const AIR_FOG = new THREE.Color('#08212a');
 const WATER_FOG = new THREE.Color('#0a5a66');
 const UNDERWATER_FOG_MULTIPLIER = 2.8;
+const MAX_POINT_LIGHTS = 14;
+const MOBILE_POINT_LIGHTS = 8;
+
+export function isCoarsePointer() {
+  return typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches === true;
+}
+
+function pickSeed() {
+  const param = new URLSearchParams(window.location.search).get('seed');
+  if (param !== null && Number.isFinite(Number(param))) return Math.abs(Math.trunc(Number(param))) || 1;
+  return 1 + Math.floor(Math.random() * 0xffffff);
+}
 
 export class GameEngine {
   constructor(canvas, settings) {
@@ -17,11 +28,11 @@ export class GameEngine {
     this.submerged = false;
     this.profile = QUALITY_PROFILES.medium;
 
-    // Required for RectAreaLight to affect MeshStandard/MeshPhysical materials.
-    RectAreaLightUniformsLib.init();
+    this.coarse = isCoarsePointer();
+    this.maxPointLights = this.coarse ? MOBILE_POINT_LIGHTS : MAX_POINT_LIGHTS;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.shadowMap.enabled = true;
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.coarse });
+    this.renderer.shadowMap.enabled = !this.coarse;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -30,30 +41,23 @@ export class GameEngine {
     this.scene = new THREE.Scene();
     this.scene.background = AIR_FOG.clone();
     this.scene.fog = new THREE.FogExp2(AIR_FOG.clone(), this.profile.fogDensity);
-    this.camera = new THREE.PerspectiveCamera(72, 1, 0.05, 120);
+    this.camera = new THREE.PerspectiveCamera(72, 1, 0.05, 160);
 
     // Environment map is used only by the water, for specular reflections.
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     pmrem.dispose();
 
-    this.world = new PoolRoom();
+    this.seed = pickSeed();
+    this.level = generateLevel({ seed: this.seed, roomCount: 7 });
+    this.world = new LevelBuilder(this.level, { envMap: this.environment, segCap: this.coarse ? 20 : 64 });
     this.scene.add(this.world.group);
-
-    const { pool } = this.world.layout;
-    this.water = new Water({
-      width: pool.maxX - pool.minX,
-      length: pool.maxZ - pool.minZ,
-      level: this.world.waterLevel,
-      centerX: (pool.minX + pool.maxX) / 2,
-      centerZ: (pool.minZ + pool.maxZ) / 2,
-      envMap: this.environment
-    });
-    this.scene.add(this.water.mesh);
 
     this.createLights();
 
-    this.player = new PlayerController(this.camera, canvas, this.world, this.water);
+    const { spawn } = this.level;
+    this.player = new PlayerController(this.camera, canvas, this.world, new THREE.Vector3(spawn.x, 0, spawn.z));
+    this.camera.lookAt(spawn.lookX, 0.2, spawn.lookZ);
     this.player.addEventListener('statechange', (event) => {
       this.submerged = event.detail.submerged;
       this.updateFog();
@@ -70,25 +74,40 @@ export class GameEngine {
   createLights() {
     this.scene.add(new THREE.HemisphereLight('#bff9ff', '#0a1c22', 1.1));
 
-    const ceiling = new THREE.RectAreaLight('#c8f8ff', 7, 14, 0.9);
-    ceiling.position.set(0, this.world.layout.height - 0.05, -2);
-    ceiling.lookAt(0, 0, -2);
-    this.scene.add(ceiling);
+    // One cheap point light per room/corridor from the generator, capped.
+    this.roomLights = [];
+    const specs = [];
+    this.level.floors.forEach((floor, index) => {
+      // Main floor keeps corridor lamps; side floors rely on room lights and
+      // emissives so the forward-renderer light budget stays sane.
+      const lights = index === 0 ? floor.lights : floor.lights.filter((spec) => spec.intensity > 20);
+      for (const spec of lights) specs.push({ spec, offset: this.world.floorOffset(index) });
+    });
+    for (const { spec, offset } of specs.slice(0, this.maxPointLights)) {
+      const light = new THREE.PointLight(spec.color, spec.intensity, spec.distance, 2);
+      light.position.set(spec.position[0], spec.position[1] + offset, spec.position[2]);
+      this.scene.add(light);
+      this.roomLights.push(light);
+    }
 
-    this.magentaLight = this.createShadowLight('#ff3cb4', 42, [-9.5, 3.2, -2]);
-    this.cyanLight = this.createShadowLight('#2fe9ff', 38, [9.5, 2.6, -3]);
+    // Two shadow-casting accent lights and an underwater glow at spawn.
+    const spawnRoom = this.level.rooms[0];
+    const cx = (spawnRoom.rect.x0 + spawnRoom.rect.x1) / 2;
+    const cz = (spawnRoom.rect.z0 + spawnRoom.rect.z1) / 2;
+    this.magentaLight = this.createShadowLight('#ff3cb4', 42, [cx - 6.5, 3.2, cz - 2]);
+    this.cyanLight = this.createShadowLight('#2fe9ff', 38, [cx + 6.5, 2.6, cz - 3]);
     this.shadowLights = [this.magentaLight, this.cyanLight];
 
-    // Underwater glow, similar to recessed pool lamps in the references.
+    const basin = spawnRoom.features.basins[0] ?? { rect: spawnRoom.rect, level: -0.3 };
     this.poolGlow = new THREE.PointLight('#35f2ff', 10, 11, 2);
-    this.poolGlow.position.set(0, -1.1, -2);
+    this.poolGlow.position.set((basin.rect.x0 + basin.rect.x1) / 2, basin.level - 0.8, (basin.rect.z0 + basin.rect.z1) / 2);
     this.scene.add(this.poolGlow);
   }
 
   createShadowLight(color, intensity, position) {
     const light = new THREE.PointLight(color, intensity, 20, 2);
     light.position.set(...position);
-    light.castShadow = true;
+    light.castShadow = !this.coarse;
     light.shadow.bias = -0.0015;
     light.shadow.normalBias = 0.02;
     light.shadow.camera.near = 0.1;
@@ -99,7 +118,9 @@ export class GameEngine {
 
   applyQuality(name) {
     this.profile = QUALITY_PROFILES[name] ?? QUALITY_PROFILES.medium;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.profile.pixelRatio));
+    // Mobile GPUs: cap the drawing buffer even on higher profiles.
+    const ratioCap = this.coarse ? 1.35 : 4;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.profile.pixelRatio, ratioCap));
     for (const light of this.shadowLights) {
       light.shadow.mapSize.set(this.profile.shadowMapSize, this.profile.shadowMapSize);
       // Dispose the old render target so the renderer allocates one at the new size.
@@ -134,7 +155,7 @@ export class GameEngine {
     const delta = this.clock.getDelta();
     const elapsed = this.clock.elapsedTime;
 
-    this.water.update(elapsed);
+    this.world.update(elapsed);
     this.player.update(delta, elapsed);
 
     const baseDensity = this.baseFogDensity();

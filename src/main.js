@@ -1,10 +1,30 @@
 import './styles.css';
 import { SettingsStore, QUALITY_PROFILES } from './settings.js';
 import { GameEngine } from './scene.js';
+import { TouchControls, isTouchDevice } from './player/TouchControls.js';
 
 const settings = new SettingsStore();
 const engine = new GameEngine(document.querySelector('#game-canvas'), settings);
 const { player } = engine;
+
+document.querySelector('#seed-line').textContent =
+  `Sector seed ${engine.seed} — replay this exact layout with ?seed=${engine.seed}`;
+
+if (touchMode) {
+  // iOS pinch/zoom gestures must not interrupt play.
+  for (const gesture of ['gesturestart', 'gesturechange']) {
+    document.addEventListener(gesture, (event) => event.preventDefault());
+  }
+  document.addEventListener('dblclick', (event) => event.preventDefault());
+}
+
+const transitionOverlay = document.querySelector('#transition-overlay');
+const floorIndicator = document.querySelector('#hud-floor');
+player.addEventListener('floorchange', (event) => {
+  floorIndicator.textContent = `37.${event.detail.floor}`;
+  transitionOverlay.classList.add('is-active');
+  window.setTimeout(() => transitionOverlay.classList.remove('is-active'), 240);
+});
 
 const body = document.body;
 const mainMenu = document.querySelector('#main-menu');
@@ -28,6 +48,7 @@ function updateForm(values) {
   document.querySelector('#master-value').value = `${values.masterVolume}%`;
   document.querySelector('#ambient-value').value = `${values.ambientVolume}%`;
   document.querySelector('#sfx-value').value = `${values.sfxVolume}%`;
+  document.querySelector('#touch-value').value = `${values.touchSensitivity}%`;
   const profile = QUALITY_PROFILES[values.quality] ?? QUALITY_PROFILES.medium;
   qualityDescription.textContent = profile.description;
   qualityIndicator.textContent = profile.label.toUpperCase();
@@ -48,23 +69,32 @@ controls.forEach((control) => control.addEventListener('input', (event) => {
 
 document.querySelector('#settings-button').addEventListener('click', () => setSettingsOpen(true));
 document.querySelector('#close-settings').addEventListener('click', () => setSettingsOpen(false));
+function setPlaying(isPlaying) {
+  mainMenu.classList.toggle('is-hidden', isPlaying);
+  body.classList.toggle('is-playing', isPlaying);
+  if (isPlaying) menuHint.textContent = DEFAULT_HINT;
+  else playButton.textContent = 'Resume';
+}
+
+// Touch devices get a virtual joystick instead of pointer lock.
+const touchMode = isTouchDevice();
+let touchControls = null;
+if (touchMode) {
+  body.classList.add('has-touch');
+  touchControls = new TouchControls(player, settings);
+  touchControls.addEventListener('pause', () => touchControls.deactivate());
+}
+
 playButton.addEventListener('click', () => {
   setSettingsOpen(false);
-  player.lock();
+  if (touchMode) touchControls.activate();
+  else player.lock();
 });
 
-// Pointer lock drives the pause flow. The browser releases the lock on Esc.
-player.controls.addEventListener('lock', () => {
-  mainMenu.classList.add('is-hidden');
-  body.classList.add('is-playing');
-  menuHint.textContent = DEFAULT_HINT;
-});
-
-player.controls.addEventListener('unlock', () => {
-  mainMenu.classList.remove('is-hidden');
-  body.classList.remove('is-playing');
-  playButton.textContent = 'Resume';
-});
+// Pointer lock drives the pause flow on desktop. The browser releases on Esc.
+player.controls.addEventListener('lock', () => setPlaying(true));
+player.controls.addEventListener('unlock', () => setPlaying(false));
+player.addEventListener('playmode', (event) => setPlaying(event.detail.playing));
 
 document.addEventListener('pointerlockerror', () => {
   menuHint.textContent = 'The browser blocked mouse capture. Wait one second, then click Resume again.';

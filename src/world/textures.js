@@ -37,6 +37,22 @@ export function createTileTexture({ base = '#d8ecea', grout = '#7c9ea2', tiles =
   return texture;
 }
 
+/** Red/white banded ring for lifebuoys (u wraps around the torus ring). */
+export function createLifebuoyTexture(size = 128) {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = 16;
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#d84334';
+  context.fillRect(0, 0, size, 16);
+  context.fillStyle = '#f4f1ea';
+  for (let i = 0; i < 4; i += 1) context.fillRect(i * (size / 4) + size / 16, 0, size / 8, 16);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  return texture;
+}
+
 // [waveNumberX, waveNumberY, amplitude, phase]. Integer wave numbers keep the map tileable.
 const WATER_WAVES = [
   [3, 1, 1.0, 0.2],

@@ -11,7 +11,8 @@ const KEY_BINDINGS = {
   KeyD: 'right',
   ArrowRight: 'right',
   KeyC: 'crouch',
-  ControlLeft: 'crouch'
+  ControlLeft: 'crouch',
+  Space: 'swimUp'
 };
 
 export const PLAYER_CONFIG = Object.freeze({
@@ -29,7 +30,9 @@ export const PLAYER_CONFIG = Object.freeze({
   waterDrag: 2.8,
   stepHeight: 0.5,
   crouchSharpness: 10,
-  waterEntryMargin: 0.05
+  waterEntryMargin: 0.05,
+  swimUpAcceleration: 16,
+  swimUpMaxSpeed: 2.6
 });
 
 /**
@@ -43,16 +46,20 @@ export const PLAYER_CONFIG = Object.freeze({
  * Dispatches `statechange` with { state, submerged, waterDepth }.
  */
 export class PlayerController extends EventTarget {
-  constructor(camera, domElement, world, water, spawn = new THREE.Vector3(0, 0, 9)) {
+  constructor(camera, domElement, world, spawn = new THREE.Vector3(0, 0, 9)) {
     super();
     this.camera = camera;
     this.world = world;
-    this.water = water;
+    this.waterAtFeet = null;
     this.controls = new PointerLockControls(camera, domElement);
     this.controls.pointerSpeed = 0.85;
+    camera.rotation.order = 'YXZ';
 
-    this.input = { forward: false, backward: false, left: false, right: false, crouch: false };
+    this.input = { forward: false, backward: false, left: false, right: false, crouch: false, swimUp: false, axis: { x: 0, y: 0 } };
+    this.look = { yaw: 0, pitch: 0 };
+    this.mobileActive = false;
     this.feet = spawn.clone();
+    this.floor = spawn.floor ?? 0;
     this.velocity = new THREE.Vector3();
     this.eyeHeight = PLAYER_CONFIG.standEyeHeight;
     this.state = 'grounded';
@@ -76,18 +83,44 @@ export class PlayerController extends EventTarget {
     return this.controls.isLocked;
   }
 
+  /** True while gameplay input is live: pointer lock on desktop, touch UI on phones. */
+  get isActive() {
+    return this.controls.isLocked || this.mobileActive;
+  }
+
+  /** Touch mode on/off: syncs the look euler with the current camera pose. */
+  setMobileActive(on) {
+    this.mobileActive = on;
+    if (on) {
+      const euler = new THREE.Euler().setFromQuaternion(this.camera.quaternion, 'YXZ');
+      this.look.yaw = euler.y;
+      this.look.pitch = euler.x;
+    } else {
+      this.clearInput();
+    }
+    this.dispatchEvent(new CustomEvent('playmode', { detail: { playing: on } }));
+  }
+
+  /** Apply a yaw/pitch state (from lookMath.applyLookDelta). */
+  applyLook(look) {
+    this.look.yaw = look.yaw;
+    this.look.pitch = look.pitch;
+    this.camera.rotation.set(this.look.pitch, this.look.yaw, 0);
+  }
+
   lock() {
     this.controls.lock();
   }
 
   getSnapshot() {
-    return { state: this.state, submerged: this.submerged, waterDepth: Math.max(0, this.water.level - this.feet.y) };
+    const level = this.waterAtFeet ? this.waterAtFeet.level : 0;
+    return { state: this.state, submerged: this.submerged, waterDepth: Math.max(0, level - this.feet.y), floor: this.floor };
   }
 
   handleKey(event, pressed) {
     const action = KEY_BINDINGS[event.code];
     if (!action) return;
-    if (!this.controls.isLocked) {
+    if (!this.isActive) {
       this.input[action] = false;
       return;
     }
@@ -96,14 +129,22 @@ export class PlayerController extends EventTarget {
   }
 
   clearInput() {
-    for (const key of Object.keys(this.input)) this.input[key] = false;
+    this.input.forward = false;
+    this.input.backward = false;
+    this.input.left = false;
+    this.input.right = false;
+    this.input.crouch = false;
+    this.input.swimUp = false;
+    this.input.axis.x = 0;
+    this.input.axis.y = 0;
   }
 
   update(delta, elapsed) {
     const dt = Math.min(delta, 0.05);
     const config = PLAYER_CONFIG;
-    const inWater = this.feet.y < this.water.level - config.waterEntryMargin;
-    const crouching = this.controls.isLocked && this.input.crouch;
+    this.waterAtFeet = this.world.getWaterState(this.feet.x, this.feet.z, elapsed, this.floor);
+    const inWater = this.waterAtFeet !== null && this.feet.y < this.waterAtFeet.level - config.waterEntryMargin;
+    const crouching = this.isActive && this.input.crouch;
 
     // Movement direction on the horizontal plane, relative to the view yaw.
     this.camera.getWorldDirection(this.forward);
@@ -112,11 +153,18 @@ export class PlayerController extends EventTarget {
     this.right.crossVectors(this.forward, this.camera.up).normalize();
 
     this.wish.set(0, 0, 0);
-    if (this.input.forward) this.wish.add(this.forward);
-    if (this.input.backward) this.wish.sub(this.forward);
-    if (this.input.right) this.wish.add(this.right);
-    if (this.input.left) this.wish.sub(this.right);
-    if (this.wish.lengthSq() > 0) this.wish.normalize();
+    if (Math.abs(this.input.axis.x) > 0.001 || Math.abs(this.input.axis.y) > 0.001) {
+      // Analog touch joystick: blend forward/right vectors, clamp to unit length.
+      this.wish.addScaledVector(this.forward, this.input.axis.y);
+      this.wish.addScaledVector(this.right, this.input.axis.x);
+      if (this.wish.lengthSq() > 1) this.wish.normalize();
+    } else {
+      if (this.input.forward) this.wish.add(this.forward);
+      if (this.input.backward) this.wish.sub(this.forward);
+      if (this.input.right) this.wish.add(this.right);
+      if (this.input.left) this.wish.sub(this.right);
+      if (this.wish.lengthSq() > 0) this.wish.normalize();
+    }
 
     let speed = crouching ? config.crouchSpeed : config.walkSpeed;
     if (this.submerged) speed *= config.submergedSpeedFactor;
@@ -134,12 +182,26 @@ export class PlayerController extends EventTarget {
     // Vertical motion: reduced gravity and drag in water.
     this.velocity.y -= (inWater ? config.waterGravity : config.gravity) * dt;
     if (inWater) this.velocity.y *= Math.exp(-config.waterDrag * dt);
+    // Swim-up assist (touch button / Space): rise towards the surface.
+    if (inWater && this.input.swimUp) {
+      this.velocity.y += config.swimUpAcceleration * dt;
+      if (this.velocity.y > config.swimUpMaxSpeed) this.velocity.y = config.swimUpMaxSpeed;
+    }
     this.feet.y += this.velocity.y * dt;
 
-    const ground = this.world.getGroundHeight(this.feet.x, this.feet.z);
+    const ground = this.world.getGroundHeight(this.feet.x, this.feet.z, this.floor);
     if (this.feet.y <= ground) {
       this.feet.y = ground;
       this.velocity.y = 0;
+    }
+
+    // Vertical connectors: stair hatches up and floor hatches down.
+    const connector = this.world.checkVertical(this.floor, this.feet.x, this.feet.z, this.feet.y);
+    if (connector) {
+      this.floor = connector.toFloor;
+      this.feet.set(connector.to.x, connector.to.y, connector.to.z);
+      this.velocity.set(0, 0, 0);
+      this.dispatchEvent(new CustomEvent('floorchange', { detail: { floor: this.floor, type: connector.type } }));
     }
 
     const targetEye = crouching ? config.crouchEyeHeight : config.standEyeHeight;
@@ -155,14 +217,19 @@ export class PlayerController extends EventTarget {
 
     this.probe.copy(this.feet);
     this.probe[axis] += amount;
-    this.world.resolveHorizontal(this.probe, radius);
 
-    // Check the ground at the leading edge of the player body, so walls
-    // (for example the pool edge seen from inside the pool) block early.
+    // Exact disk test against the level union: walls, pillars and seams.
+    if (!this.world.canStand(this.probe.x, this.probe.z, radius, this.floor)) {
+      this.velocity[axis] = 0;
+      return;
+    }
+
+    // Check the ground at the leading edge of the player body, so basin
+    // walls seen from inside the water block early.
     const leadOffset = Math.sign(amount) * radius;
     const leadX = axis === 'x' ? this.probe.x + leadOffset : this.probe.x;
     const leadZ = axis === 'z' ? this.probe.z + leadOffset : this.probe.z;
-    if (this.world.getGroundHeight(leadX, leadZ) - this.feet.y > stepHeight) {
+    if (this.world.getGroundHeight(leadX, leadZ, this.floor) - this.feet.y > stepHeight) {
       this.velocity[axis] = 0;
       return;
     }
@@ -170,7 +237,7 @@ export class PlayerController extends EventTarget {
     this.feet.x = this.probe.x;
     this.feet.z = this.probe.z;
 
-    const centerGround = this.world.getGroundHeight(this.feet.x, this.feet.z);
+    const centerGround = this.world.getGroundHeight(this.feet.x, this.feet.z, this.floor);
     if (centerGround > this.feet.y) {
       this.feet.y = centerGround;
       if (this.velocity.y < 0) this.velocity.y = 0;
@@ -178,14 +245,16 @@ export class PlayerController extends EventTarget {
   }
 
   syncCamera() {
-    this.camera.position.set(this.feet.x, this.feet.y + this.eyeHeight, this.feet.z);
+    const offset = this.world.floorOffset ? this.world.floorOffset(this.floor) : 0;
+    this.camera.position.set(this.feet.x, this.feet.y + this.eyeHeight + offset, this.feet.z);
   }
 
   updateWaterState(elapsed) {
     const { position } = this.camera;
-    const surface = this.water.heightAt(position.x, position.z, elapsed);
-    const aquatic = this.feet.y < this.water.level - PLAYER_CONFIG.waterEntryMargin;
-    const submerged = aquatic && position.y < surface;
+    const atCamera = this.world.getWaterState(position.x, position.z, elapsed, this.floor);
+    const surface = atCamera ? atCamera.surface : null;
+    const aquatic = this.waterAtFeet !== null && this.feet.y < this.waterAtFeet.level - PLAYER_CONFIG.waterEntryMargin;
+    const submerged = aquatic && surface !== null && position.y < surface;
     const state = aquatic ? 'aquatic' : 'grounded';
 
     if (state === this.state && submerged === this.submerged) return;
