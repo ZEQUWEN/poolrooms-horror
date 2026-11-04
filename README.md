@@ -27,6 +27,11 @@ Mobile runs are also cheaper: Low quality by default, capped pixel ratio,
 no shadow maps, fewer point lights and coarser water meshes. Desktop keeps
 mouse + keyboard with pointer lock.
 
+The scheme is switchable by hand: **Settings → Controls → Control scheme**
+offers `Auto` (match the device), `Desktop` (keyboard + mouse) and `Touch`
+(virtual joystick + drag look), so a phone can be forced onto PC controls and
+a PC onto the mobile layout; the choice is persisted.
+
 ## Controls
 
 | Input | Action |
@@ -61,6 +66,16 @@ Room archetypes: `poolHall`, `colonnade`, `rotunda`, `grandStair`, `lanePool`,
 `stairwell`. Basins carry floor drains, wall overflow grates, inflow pipes and
 corner risers for industrial variety. See `docs/AUDIT.md` for the layout-logic
 screening report.
+
+Lighting is procedural too. Every room gets a seeded light plan: a ceiling
+light (sometimes a dying, flickering fluorescent), secondary panel/strip
+fixtures built as real geometry with matching point lights, underwater pool
+glows, and recessed **wall windows** glowing "from nowhere" — bright panes in
+tiled niches with metal frames, mullions and a soft additive halo, placed only
+on solid wall spans clear of doors and decor. The renderer keeps a fixed pool
+of point lights (16 desktop / 8 mobile) and rebinds it several times a second
+to the nearest, most important light specs, so hundreds of generated lights
+stay within budget; intensities are smoothed, flicker is deterministic.
 
 ## Structure
 

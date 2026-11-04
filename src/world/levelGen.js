@@ -116,6 +116,134 @@ function basinDrains(basinRect, rng) {
   return drains;
 }
 
+const INWARD = Object.freeze({ N: [0, 1], S: [0, -1], W: [1, 0], E: [-1, 0] });
+const WINDOW_PALETTE = ['#fff1cf', '#e6f7ff', '#dcffec'];
+
+function makeFlicker(rng) {
+  return { speed: rng.range(5, 13), depth: rng.range(0.3, 0.65), phase: rng.range(0, 6.28) };
+}
+
+/** 1-D version of the interval subtraction used for wall spans. */
+function subtractSpans(span, cuts) {
+  let pieces = [span];
+  for (const [c0, c1] of cuts) {
+    const next = [];
+    for (const [p0, p1] of pieces) {
+      if (c1 <= p0 || c0 >= p1) { next.push([p0, p1]); continue; }
+      if (c0 > p0) next.push([p0, c0]);
+      if (c1 < p1) next.push([c1, p1]);
+    }
+    pieces = next;
+  }
+  return pieces.filter(([p0, p1]) => p1 - p0 > 0.05);
+}
+
+/**
+ * "Windows with light from nowhere": bright recessed panes on outer wall
+ * spans. Sides that already carry decor (niches, lifebuoys, panel windows,
+ * the lanePool slope) or a doorway are skipped; every other free span may
+ * host one window, kept away from corners and doors.
+ */
+export function placeWallWindows(room, rng) {
+  const r = room.rect;
+  const f = room.features;
+  const busy = new Set();
+  for (const side of [f.decor.niches, f.decor.lifebuoys, f.decor.windows, f.decor.slopedCeiling, f.decor.pipes?.inflow?.side]) {
+    if (side) busy.add(side);
+  }
+  const out = [];
+  for (const side of rng.shuffle([...SIDES])) {
+    if (busy.has(side)) continue;
+    const [s0, s1] = sideSpan(r, side);
+    if (s1 - s0 < 8) continue;
+    const cuts = room.doors.filter((door) => door.side === side).map((door) => [door.u0 - 1.1, door.u1 + 1.1]);
+    for (const [a, b] of subtractSpans([s0 + 2.2, s1 - 2.2], cuts)) {
+      if (b - a < 3.8 || out.length >= 4) continue;
+      if (!rng.chance(0.55)) continue;
+      const w = Math.min(rng.range(2.2, 3.2), b - a - 0.9);
+      const lo = a + w / 2 + 0.3;
+      const hi = b - w / 2 - 0.3;
+      if (hi <= lo) continue;
+      const uMid = rng.range(lo, hi);
+      const y0 = rng.range(1.05, 1.75);
+      const y1 = Math.min(y0 + rng.range(1.9, 2.6), room.height - 0.9);
+      out.push({ side, u0: uMid - w / 2, u1: uMid + w / 2, y0, y1, color: rng.pick(WINDOW_PALETTE) });
+    }
+  }
+  return out;
+}
+
+/**
+ * Seeded lighting plan for one room: a main ceiling light (sometimes a
+ * dying, flickering one), secondary panel/strip fixtures with matching
+ * geometry descriptors, underwater pool glows and a warm/cool glow for the
+ * wall windows. Priorities feed the renderer's light pool budget.
+ */
+export function makeRoomLightPlan(room, rng) {
+  const r = room.rect;
+  const f = room.features;
+  const [cx, cz] = center(r);
+  const long = (r.x1 - r.x0) >= (r.z1 - r.z0);
+  const span = Math.max(r.x1 - r.x0, r.z1 - r.z0);
+  const color = ROOM_LIGHT_COLORS[room.type];
+  const lights = [];
+  const fixtures = [];
+
+  lights.push({
+    kind: 'ceiling', position: [cx, room.height - 1.0, cz], color,
+    intensity: 46 + rng.range(0, 18), distance: span * 1.05,
+    priority: 1, flicker: rng.chance(0.16) ? makeFlicker(rng) : null
+  });
+
+  const avoidCenter = Boolean(f.decor.ceilingStrip || f.decor.oculus);
+  const count = avoidCenter ? 2 : (span > 18 ? rng.int(2, 3) : rng.int(1, 2));
+  for (let i = 0; i < count; i += 1) {
+    const t = avoidCenter ? (i === 0 ? 0.28 : 0.72) : (i + 0.5) / count;
+    const x = long ? r.x0 + (r.x1 - r.x0) * t : cx;
+    const z = long ? cz : r.z0 + (r.z1 - r.z0) * t;
+    const shape = rng.chance(0.55) ? 'strip' : 'panel';
+    const fixture = {
+      shape, x, z, y: room.height - 0.09, along: long ? 'x' : 'z',
+      len: shape === 'strip' ? rng.range(2.4, 4.0) : rng.range(1.0, 1.5),
+      wid: shape === 'strip' ? rng.range(0.42, 0.6) : rng.range(1.0, 1.4),
+      color: rng.chance(0.25) ? '#ffe8bd' : color
+    };
+    fixtures.push(fixture);
+    lights.push({
+      kind: 'fixture', position: [x, room.height - 0.55, z], color: fixture.color,
+      intensity: 15 + rng.range(0, 9), distance: span * 0.55,
+      priority: 0.5, flicker: rng.chance(0.3) ? makeFlicker(rng) : null
+    });
+  }
+
+  for (const basin of f.basins) {
+    const [bx, bz] = center(basin.rect);
+    lights.push({
+      kind: 'pool', position: [bx, basin.level - 0.7, bz], color: '#3ef0ff',
+      intensity: 12 + rng.range(0, 7),
+      distance: Math.max(basin.rect.x1 - basin.rect.x0, basin.rect.z1 - basin.rect.z0) * 0.9 + 4,
+      priority: 0.92, flicker: null
+    });
+  }
+
+  const wins = f.decor.wallWindows ?? [];
+  if (wins.length && rng.chance(0.8)) {
+    const win = rng.pick(wins);
+    const [ix, iz] = INWARD[win.side];
+    const line = sideWallLine(r, win.side);
+    const uMid = (win.u0 + win.u1) / 2;
+    const alongX = win.side === 'N' || win.side === 'S';
+    lights.push({
+      kind: 'window',
+      position: [alongX ? uMid : line + ix * 1.15, (win.y0 + win.y1) / 2, alongX ? line + iz * 1.15 : uMid],
+      color: win.color, intensity: 24 + rng.range(0, 8), distance: 12.5,
+      priority: 0.88, flicker: null
+    });
+  }
+
+  return { lights, fixtures };
+}
+
 function makeFeatures(type, r, rng) {
   const f = { basins: [], islands: [], landings: [], stairRuns: [], pillars: [], holes: [], decor: { pipes: {} } };
   const w = r.x1 - r.x0;
@@ -501,14 +629,11 @@ function makeFloor(rng, floorIndex, roomCount) {
       const [cx, cz] = center(basin.rect);
       waterBodies.push({ rect: basin.rect, centerX: cx, centerZ: cz, level: basin.level, depth: basin.depth, kind: 'basin', owner: room.id });
     }
-    const [cx, cz] = center(room.rect);
-    lights.push({
-      position: [cx, room.height - 1.1, cz],
-      color: ROOM_LIGHT_COLORS[room.type],
-      intensity: 55,
-      distance: Math.max(room.rect.x1 - room.rect.x0, room.rect.z1 - room.rect.z0) * 1.05,
-      shadow: false
-    });
+    // Procedural lighting + "light from nowhere" windows (doors are final).
+    room.features.decor.wallWindows = placeWallWindows(room, rng);
+    const plan = makeRoomLightPlan(room, rng);
+    room.features.decor.lightFixtures = plan.fixtures;
+    lights.push(...plan.lights);
   }
 
   for (const corridor of corridors) {
@@ -519,7 +644,11 @@ function makeFloor(rng, floorIndex, roomCount) {
       waterBodies.push({ ...body, centerX: cx, centerZ: cz, kind: 'channel', owner: corridor.id });
     }
     const [cx, cz] = center(corridor.rects[0]);
-    lights.push({ position: [cx, corridor.height - 0.7, cz], color: '#9fe8ef', intensity: 14, distance: 11, shadow: false });
+    lights.push({
+      kind: 'corridor', position: [cx, corridor.height - 0.7, cz], color: '#9fe8ef',
+      intensity: 14, distance: 11, priority: 0.45,
+      flicker: rng.chance(0.12) ? makeFlicker(rng) : null
+    });
   }
 
   const bounds = rooms.reduce((acc, room) => ({
@@ -583,7 +712,7 @@ function addDiveTunnels(floor, rng, count) {
       floor.corridors.push(corridor);
       const [cx, cz] = center(tunnel);
       floor.waterBodies.push({ rect: tunnel, centerX: cx, centerZ: cz, level: -0.3, depth: -0.3 - floorY, kind: 'dive', owner: corridor.id });
-      floor.lights.push({ position: [cx, top - 0.25, cz], color: '#69d8e6', intensity: 6, distance: 7, shadow: false });
+      floor.lights.push({ kind: 'dive', position: [cx, top - 0.25, cz], color: '#69d8e6', intensity: 6, distance: 7, priority: 0.2, flicker: null });
       added.push(corridor);
     }
   }

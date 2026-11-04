@@ -1,5 +1,5 @@
 import './styles.css';
-import { SettingsStore, QUALITY_PROFILES } from './settings.js';
+import { SettingsStore, QUALITY_PROFILES, CONTROL_SCHEME_DESCRIPTIONS, resolveControlScheme } from './settings.js';
 import { GameEngine } from './scene.js';
 import { TouchControls, isTouchDevice } from './player/TouchControls.js';
 
@@ -10,22 +10,6 @@ const { player } = engine;
 document.querySelector('#seed-line').textContent =
   `Sector seed ${engine.seed} — replay this exact layout with ?seed=${engine.seed}`;
 
-if (touchMode) {
-  // iOS pinch/zoom gestures must not interrupt play.
-  for (const gesture of ['gesturestart', 'gesturechange']) {
-    document.addEventListener(gesture, (event) => event.preventDefault());
-  }
-  document.addEventListener('dblclick', (event) => event.preventDefault());
-}
-
-const transitionOverlay = document.querySelector('#transition-overlay');
-const floorIndicator = document.querySelector('#hud-floor');
-player.addEventListener('floorchange', (event) => {
-  floorIndicator.textContent = `37.${event.detail.floor}`;
-  transitionOverlay.classList.add('is-active');
-  window.setTimeout(() => transitionOverlay.classList.remove('is-active'), 240);
-});
-
 const body = document.body;
 const mainMenu = document.querySelector('#main-menu');
 const settingsPanel = document.querySelector('#settings-panel');
@@ -34,9 +18,56 @@ const menuHint = document.querySelector('#menu-hint');
 const stateIndicator = document.querySelector('#player-state');
 const qualityIndicator = document.querySelector('#quality-indicator');
 const qualityDescription = document.querySelector('#quality-description');
+const controlsDescription = document.querySelector('#controls-description');
 const controls = document.querySelectorAll('[data-setting]');
 const DEFAULT_HINT = menuHint.textContent;
 const STATE_LABELS = { grounded: 'GROUNDED', aquatic: 'WADING' };
+
+// iOS pinch/zoom gestures must not interrupt play on touch-capable hardware.
+const touchCapable = isTouchDevice();
+if (touchCapable) {
+  for (const gesture of ['gesturestart', 'gesturechange']) {
+    document.addEventListener(gesture, (event) => event.preventDefault());
+  }
+  document.addEventListener('dblclick', (event) => event.preventDefault());
+}
+
+/* ------------------------------------------------- control scheme switching */
+
+let activeScheme = resolveControlScheme(settings.values.controlScheme, touchCapable);
+let touchControls = null;
+
+function ensureTouchControls() {
+  if (!touchControls) {
+    touchControls = new TouchControls(player, settings);
+    touchControls.addEventListener('pause', () => touchControls.deactivate());
+  }
+  return touchControls;
+}
+
+/**
+ * Applies the effective scheme ('desktop' | 'touch'). Settings can force the
+ * mobile layout on a PC or the keyboard+mouse layout on a phone; 'auto'
+ * follows the device. Switching live toggles the touch UI and releases it.
+ */
+function applyControlScheme(value) {
+  activeScheme = resolveControlScheme(value, touchCapable);
+  const touch = activeScheme === 'touch';
+  body.classList.toggle('has-touch', touch);
+  if (touch) ensureTouchControls();
+  else if (touchControls?.active) touchControls.deactivate();
+  controlsDescription.textContent = CONTROL_SCHEME_DESCRIPTIONS[activeScheme];
+}
+
+/* ------------------------------------------------------------------- menu */
+
+const transitionOverlay = document.querySelector('#transition-overlay');
+const floorIndicator = document.querySelector('#hud-floor');
+player.addEventListener('floorchange', (event) => {
+  floorIndicator.textContent = `37.${event.detail.floor}`;
+  transitionOverlay.classList.add('is-active');
+  window.setTimeout(() => transitionOverlay.classList.remove('is-active'), 240);
+});
 
 function setSettingsOpen(isOpen) {
   settingsPanel.classList.toggle('is-open', isOpen);
@@ -60,15 +91,23 @@ function updatePlayerState({ state, submerged }) {
   body.classList.toggle('is-submerged', submerged);
 }
 
-settings.subscribe(updateForm);
+settings.subscribe((values, changedKey) => {
+  updateForm(values);
+  if (changedKey === 'controlScheme' || changedKey === null) applyControlScheme(values.controlScheme);
+});
+
 controls.forEach((control) => control.addEventListener('input', (event) => {
   const { setting } = event.currentTarget.dataset;
-  const value = setting === 'quality' ? event.currentTarget.value : Number(event.currentTarget.value);
+  // Sliders store numbers; selects (quality, control scheme) store strings.
+  const value = event.currentTarget.type === 'range'
+    ? Number(event.currentTarget.value)
+    : event.currentTarget.value;
   settings.set(setting, value);
 }));
 
 document.querySelector('#settings-button').addEventListener('click', () => setSettingsOpen(true));
 document.querySelector('#close-settings').addEventListener('click', () => setSettingsOpen(false));
+
 function setPlaying(isPlaying) {
   mainMenu.classList.toggle('is-hidden', isPlaying);
   body.classList.toggle('is-playing', isPlaying);
@@ -76,18 +115,9 @@ function setPlaying(isPlaying) {
   else playButton.textContent = 'Resume';
 }
 
-// Touch devices get a virtual joystick instead of pointer lock.
-const touchMode = isTouchDevice();
-let touchControls = null;
-if (touchMode) {
-  body.classList.add('has-touch');
-  touchControls = new TouchControls(player, settings);
-  touchControls.addEventListener('pause', () => touchControls.deactivate());
-}
-
 playButton.addEventListener('click', () => {
   setSettingsOpen(false);
-  if (touchMode) touchControls.activate();
+  if (activeScheme === 'touch') ensureTouchControls().activate();
   else player.lock();
 });
 

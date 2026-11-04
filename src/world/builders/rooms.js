@@ -3,7 +3,8 @@ import {
   floorRect, ceilingRect, wallSeg, subtractRects, cylinderPillar, boxPillar,
   basinShell, islandBlock, landingBlock, stairRunSteps, handrailEdge, niche,
   lifebuoy, windowPanel, oculusCeiling, ceilingBeams, slopedRibCeiling,
-  floorDrain, overflowGrate, inflowPipe, riserPipe, hatchGlow, hatchShaft
+  floorDrain, overflowGrate, inflowPipe, riserPipe, hatchGlow, hatchShaft,
+  lightFixture, wallWindow
 } from './kit.js';
 
 function sideLine(r, side) {
@@ -109,6 +110,12 @@ export function buildRoom(group, room, walls, materials) {
       windowPanel(group, side, line, u - 1.6, u + 1.6, 1.2, 3.4, materials.windowLight);
     }
   }
+
+  // Procedural lighting: ceiling panels/strips generated per room.
+  for (const fixture of f.decor.lightFixtures ?? []) lightFixture(group, fixture, materials);
+
+  // Recessed wall windows glowing "from nowhere".
+  for (const win of f.decor.wallWindows ?? []) wallWindow(group, win, sideLine(r, win.side), materials);
   if (basin) {
     // Floor drains and wall overflow grates (стоки).
     for (const drain of basin.drains ?? []) floorDrain(group, drain.x, drain.z, drain.r, -basin.depth, materials);

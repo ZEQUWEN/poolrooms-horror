@@ -172,3 +172,79 @@ test('all archetypes appear across seeds', () => {
   for (const type of [...ROOM_TYPES, 'stairwell']) assert.ok(roomSeen.has(type), `room type ${type} never generated`);
   for (const type of [...CORRIDOR_TYPES, 'dive']) assert.ok(corridorSeen.has(type), `corridor type ${type} never generated`);
 });
+
+test('wall windows stay on solid spans: inside walls, clear of doors and decor', () => {
+  let total = 0;
+  for (const seed of [1, 7, 99, 1234, 55555]) {
+    for (const floor of allFloors(generateLevel({ seed, roomCount: 7 }))) {
+      for (const room of floor.rooms) {
+        const wins = room.features.decor.wallWindows ?? [];
+        total += wins.length;
+        assert.ok(wins.length <= 4, `${room.id}: too many windows`);
+        for (const win of wins) {
+          const alongX = win.side === 'N' || win.side === 'S';
+          const [s0, s1] = alongX ? [room.rect.x0, room.rect.x1] : [room.rect.z0, room.rect.z1];
+          assert.ok(['N', 'S', 'E', 'W'].includes(win.side), `${room.id}: bad side`);
+          assert.ok(win.u0 >= s0 + 1.4 && win.u1 <= s1 - 1.4, `${room.id}: window outside wall span`);
+          assert.ok(win.u1 - win.u0 >= 1.8, `${room.id}: window too narrow`);
+          assert.ok(win.y0 >= 0.9 && win.y1 > win.y0, `${room.id}: bad window height`);
+          assert.ok(win.y1 <= room.height - 0.6, `${room.id}: window punches the ceiling`);
+          assert.ok(/^#[0-9a-f]{6}$/i.test(win.color), `${room.id}: bad window color`);
+          // Never on a decorated side, never over a doorway.
+          const decor = room.features.decor;
+          assert.notEqual(decor.niches, win.side);
+          assert.notEqual(decor.lifebuoys, win.side);
+          assert.notEqual(decor.windows, win.side);
+          assert.notEqual(decor.slopedCeiling, win.side);
+          for (const door of room.doors) {
+            if (door.side !== win.side) continue;
+            assert.ok(win.u1 + 0.2 < door.u0 || win.u0 - 0.2 > door.u1, `${room.id}: window over door`);
+          }
+          // No overlapping windows on the same side.
+          for (const other of wins) {
+            if (other === win || other.side !== win.side) continue;
+            assert.ok(win.u1 + 0.3 < other.u0 || win.u0 - 0.3 > other.u1, `${room.id}: overlapping windows`);
+          }
+        }
+      }
+    }
+  }
+  assert.ok(total >= 10, `procedural windows too rare: ${total}`);
+});
+
+test('light specs carry kind, priority and finite positions', () => {
+  const kinds = new Set();
+  for (const seed of [1, 7, 99]) {
+    for (const floor of allFloors(generateLevel({ seed, roomCount: 7 }))) {
+      assert.ok(floor.lights.length > floor.rooms.length, `floor ${floor.index}: no per-room lighting variety`);
+      let ceilingLights = 0;
+      for (const light of floor.lights) {
+        kinds.add(light.kind);
+        assert.ok(light.priority > 0 && light.priority <= 1, `bad priority ${light.priority}`);
+        assert.ok(Number.isFinite(light.position[0]) && Number.isFinite(light.position[1]) && Number.isFinite(light.position[2]), 'NaN light position');
+        assert.ok(light.intensity > 0 && light.distance > 0, 'degenerate light');
+        if (light.flicker) {
+          assert.ok(light.flicker.speed > 0 && light.flicker.depth > 0 && light.flicker.depth < 1);
+          assert.ok(Number.isFinite(light.flicker.phase));
+        }
+        if (light.kind === 'ceiling') ceilingLights += 1;
+      }
+      assert.equal(ceilingLights, floor.rooms.length, 'every room needs exactly one ceiling light');
+      // Fixtures have geometry descriptors for the builder.
+      for (const room of floor.rooms) {
+        const fixtures = room.features.decor.lightFixtures ?? [];
+        assert.ok(fixtures.length >= 1, `${room.id}: no fixtures`);
+        for (const fixture of fixtures) {
+          assert.ok(fixture.shape === 'panel' || fixture.shape === 'strip');
+          assert.ok(fixture.x > room.rect.x0 && fixture.x < room.rect.x1, 'fixture outside room (x)');
+          assert.ok(fixture.z > room.rect.z0 && fixture.z < room.rect.z1, 'fixture outside room (z)');
+          assert.ok(Math.abs(fixture.y - room.height) < 0.5, 'fixture not near ceiling');
+          assert.ok(/^#[0-9a-f]{6}$/i.test(fixture.color));
+        }
+      }
+    }
+  }
+  for (const kind of ['ceiling', 'fixture', 'pool', 'window', 'corridor']) {
+    assert.ok(kinds.has(kind), `light kind ${kind} never generated`);
+  }
+});
