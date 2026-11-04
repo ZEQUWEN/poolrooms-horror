@@ -2,14 +2,16 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { QUALITY_PROFILES } from './settings.js';
 import { generateLevel } from './world/levelGen.js';
+import { flickerFactor, rankSpecsForPosition } from './world/lightMath.js';
 import { LevelBuilder } from './world/LevelBuilder.js';
 import { PlayerController } from './player/PlayerController.js';
 
 const AIR_FOG = new THREE.Color('#08212a');
 const WATER_FOG = new THREE.Color('#0a5a66');
 const UNDERWATER_FOG_MULTIPLIER = 2.8;
-const MAX_POINT_LIGHTS = 14;
+const MAX_POINT_LIGHTS = 16;
 const MOBILE_POINT_LIGHTS = 8;
+const RELIGHT_INTERVAL = 0.25;
 
 export function isCoarsePointer() {
   return typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches === true;
@@ -74,34 +76,65 @@ export class GameEngine {
   createLights() {
     this.scene.add(new THREE.HemisphereLight('#bff9ff', '#0a1c22', 1.1));
 
-    // One cheap point light per room/corridor from the generator, capped.
-    this.roomLights = [];
-    const specs = [];
+    // Procedural light specs from the generator (ceiling fixtures, window
+    // glows, pool glows, corridor lamps...) flattened with floor offsets.
+    // A fixed pool of PointLights is re-bound to the nearest/most important
+    // specs every RELIGHT_INTERVAL seconds, so any number of generated
+    // lights stays within the forward-renderer budget.
+    this.lightSpecs = [];
     this.level.floors.forEach((floor, index) => {
-      // Main floor keeps corridor lamps; side floors rely on room lights and
-      // emissives so the forward-renderer light budget stays sane.
-      const lights = index === 0 ? floor.lights : floor.lights.filter((spec) => spec.intensity > 20);
-      for (const spec of lights) specs.push({ spec, offset: this.world.floorOffset(index) });
+      const offset = this.world.floorOffset(index);
+      for (const spec of floor.lights) {
+        this.lightSpecs.push({
+          ...spec,
+          position: [spec.position[0], spec.position[1] + offset, spec.position[2]]
+        });
+      }
     });
-    for (const { spec, offset } of specs.slice(0, this.maxPointLights)) {
-      const light = new THREE.PointLight(spec.color, spec.intensity, spec.distance, 2);
-      light.position.set(spec.position[0], spec.position[1] + offset, spec.position[2]);
+    this.lightPool = [];
+    for (let i = 0; i < this.maxPointLights; i += 1) {
+      const light = new THREE.PointLight('#ffffff', 0, 10, 2);
+      light.userData.spec = null;
       this.scene.add(light);
-      this.roomLights.push(light);
+      this.lightPool.push(light);
     }
+    this.relightTimer = 0;
 
-    // Two shadow-casting accent lights and an underwater glow at spawn.
-    const spawnRoom = this.level.rooms[0];
+    // Two shadow-casting accent lights at the spawn room.
+    const spawnRoom = this.level.floors[0].rooms[0];
     const cx = (spawnRoom.rect.x0 + spawnRoom.rect.x1) / 2;
     const cz = (spawnRoom.rect.z0 + spawnRoom.rect.z1) / 2;
     this.magentaLight = this.createShadowLight('#ff3cb4', 42, [cx - 6.5, 3.2, cz - 2]);
     this.cyanLight = this.createShadowLight('#2fe9ff', 38, [cx + 6.5, 2.6, cz - 3]);
     this.shadowLights = [this.magentaLight, this.cyanLight];
+  }
 
-    const basin = spawnRoom.features.basins[0] ?? { rect: spawnRoom.rect, level: -0.3 };
-    this.poolGlow = new THREE.PointLight('#35f2ff', 10, 11, 2);
-    this.poolGlow.position.set((basin.rect.x0 + basin.rect.x1) / 2, basin.level - 0.8, (basin.rect.z0 + basin.rect.z1) / 2);
-    this.scene.add(this.poolGlow);
+  /** Re-bind the light pool to nearby specs and animate flicker/breathing. */
+  updateLighting(delta, elapsed) {
+    this.relightTimer -= delta;
+    if (this.relightTimer <= 0) {
+      this.relightTimer = RELIGHT_INTERVAL;
+      const order = rankSpecsForPosition(this.lightSpecs, this.camera.position, this.lightPool.length);
+      this.lightPool.forEach((light, k) => {
+        const spec = this.lightSpecs[order[k]] ?? null;
+        light.userData.spec = spec;
+        if (!spec) return;
+        light.color.set(spec.color);
+        light.distance = spec.distance;
+        light.position.set(spec.position[0], spec.position[1], spec.position[2]);
+      });
+    }
+    // Intensity is smoothed so re-binds never pop and flicker feels organic.
+    const smooth = 1 - Math.exp(-12 * delta);
+    for (const light of this.lightPool) {
+      const spec = light.userData.spec;
+      let target = 0;
+      if (spec) {
+        target = spec.intensity * (spec.flicker ? flickerFactor(spec.flicker, elapsed) : 1);
+        if (spec.kind === 'window') target *= 0.94 + Math.sin(elapsed * 0.8 + spec.position[0]) * 0.06;
+      }
+      light.intensity += (target - light.intensity) * smooth;
+    }
   }
 
   createShadowLight(color, intensity, position) {
@@ -157,6 +190,7 @@ export class GameEngine {
 
     this.world.update(elapsed);
     this.player.update(delta, elapsed);
+    this.updateLighting(delta, elapsed);
 
     const baseDensity = this.baseFogDensity();
     this.scene.fog.density = this.profile.dynamicFog

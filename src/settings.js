@@ -29,7 +29,31 @@ export const QUALITY_PROFILES = {
 
 // Phones and tablets start on the cheap profile; desktops on Medium.
 const COARSE = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches === true;
-const defaults = { masterVolume: 80, ambientVolume: 65, sfxVolume: 75, touchSensitivity: 100, quality: COARSE ? 'low' : 'medium' };
+const defaults = {
+  masterVolume: 80,
+  ambientVolume: 65,
+  sfxVolume: 75,
+  touchSensitivity: 100,
+  quality: COARSE ? 'low' : 'medium',
+  controlScheme: 'auto'
+};
+
+export const CONTROL_SCHEMES = ['auto', 'desktop', 'touch'];
+
+export const CONTROL_SCHEME_DESCRIPTIONS = {
+  desktop: 'Keyboard + mouse. Click Play to capture the mouse, Esc releases it.',
+  touch: 'Virtual joystick on the left half, drag-look on the right, on-screen buttons.'
+};
+
+/**
+ * Resolve the effective scheme: 'auto' follows the device, the explicit
+ * values force the PC (keyboard + mouse) or the mobile (touch) layout
+ * on any hardware.
+ */
+export function resolveControlScheme(value, isTouchCapable) {
+  if (value === 'desktop' || value === 'touch') return value;
+  return isTouchCapable ? 'touch' : 'desktop';
+}
 
 export class SettingsStore {
   constructor() {

@@ -544,3 +544,135 @@ export function ceilingBeams(group, r, y, materials, count = 4) {
     group.add(mesh);
   }
 }
+
+/**
+ * Procedural ceiling fixture (panel or strip): metal housing recessed into
+ * the ceiling plus a bright unlit face. `along` is the horizontal axis the
+ * long side follows ('x' or 'z').
+ */
+export function lightFixture(group, fixture, materials) {
+  const { x, z, y, shape, along } = fixture;
+  const len = fixture.len ?? 2.8;
+  const wid = fixture.wid ?? 0.6;
+  const alongZ = along === 'z';
+  const face = materials.emissiveFor(fixture.color ?? '#dffcff');
+
+  if (shape === 'panel') {
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(wid + 0.22, 0.16, wid + 0.22), materials.metal);
+    housing.position.set(x, y + 0.08, z);
+    group.add(housing);
+    const pane = new THREE.Mesh(new THREE.PlaneGeometry(wid, wid), face);
+    pane.rotation.x = Math.PI / 2;
+    pane.position.set(x, y - 0.005, z);
+    group.add(pane);
+    return;
+  }
+
+  const housing = new THREE.Mesh(
+    new THREE.BoxGeometry(alongZ ? wid : len, 0.12, alongZ ? len : wid),
+    materials.metal
+  );
+  housing.position.set(x, y + 0.06, z);
+  group.add(housing);
+  const pane = new THREE.Mesh(
+    new THREE.PlaneGeometry(alongZ ? wid : len, alongZ ? len : wid),
+    face
+  );
+  pane.rotation.x = Math.PI / 2;
+  pane.position.set(x, y - 0.005, z);
+  group.add(pane);
+}
+
+/**
+ * Recessed wall window glowing "from nowhere" (the classic Poolrooms look):
+ * a bright pane set back into a shallow niche, tiled reveals, a metal frame
+ * with mullions, a sill and a soft additive halo spilling into the room.
+ */
+export function wallWindow(group, win, wallLine, materials) {
+  const side = win.side;
+  const alongX = side === 'N' || side === 'S';
+  const dir = side === 'N' || side === 'W' ? 1 : -1;
+  const depth = 0.3;
+  const w = win.u1 - win.u0;
+  const h = win.y1 - win.y0;
+  const uMid = (win.u0 + win.u1) / 2;
+  const yMid = (win.y0 + win.y1) / 2;
+  const px = alongX ? uMid : wallLine;
+  const pz = alongX ? wallLine : uMid;
+  const nx = alongX ? 0 : dir;
+  const nz = alongX ? dir : 0;
+  const color = win.color ?? '#fff1cf';
+  const face = materials.emissiveFor(color);
+
+  const faceRotation = () => {
+    if (side === 'S') return Math.PI;
+    if (side === 'W') return Math.PI / 2;
+    if (side === 'E') return -Math.PI / 2;
+    return 0;
+  };
+
+  // Bright pane at the back of the niche.
+  const pane = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.08, h - 0.08), face);
+  pane.position.set(px + nx * depth, yMid, pz + nz * depth);
+  pane.rotation.y = faceRotation();
+  group.add(pane);
+
+  // Tiled reveals: top/bottom and both sides of the niche.
+  for (const yAt of [win.y0, win.y1]) {
+    const reveal = new THREE.Mesh(
+      new THREE.PlaneGeometry(alongX ? w : depth, alongX ? depth : w),
+      materials.wall
+    );
+    reveal.rotation.x = Math.PI / 2;
+    reveal.position.set(px + nx * depth / 2, yAt, pz + nz * depth / 2);
+    group.add(reveal);
+  }
+  for (const uAt of [win.u0, win.u1]) {
+    const reveal = new THREE.Mesh(new THREE.PlaneGeometry(depth, h), materials.wall);
+    if (alongX) reveal.rotation.y = Math.PI / 2;
+    reveal.position.set(alongX ? uAt : px + nx * depth / 2, yMid, alongX ? pz + nz * depth / 2 : uAt);
+    group.add(reveal);
+  }
+
+  // Metal frame around the opening.
+  const t = 0.1;
+  for (const yAt of [win.y0 - t / 2, win.y1 + t / 2]) {
+    const bar = new THREE.Mesh(
+      new THREE.BoxGeometry(alongX ? w + t * 2 : t, t, alongX ? t : w + t * 2),
+      materials.metal
+    );
+    bar.position.set(alongX ? uMid : px + nx * 0.02, yAt, alongX ? pz + nz * 0.02 : uMid);
+    group.add(bar);
+  }
+  for (const uAt of [win.u0, win.u1]) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(t, h + t * 2, t), materials.metal);
+    bar.position.set(alongX ? uAt : px + nx * 0.02, yMid, alongX ? pz + nz * 0.02 : uAt);
+    group.add(bar);
+  }
+
+  // Mullions: one vertical, one horizontal across the pane.
+  const mullionDepth = depth * 0.6;
+  const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.05, h - 0.1, 0.05), materials.metal);
+  vBar.position.set(px + nx * mullionDepth, yMid, pz + nz * mullionDepth);
+  group.add(vBar);
+  const hBar = new THREE.Mesh(
+    new THREE.BoxGeometry(alongX ? w - 0.1 : 0.05, 0.05, alongX ? 0.05 : w - 0.1),
+    materials.metal
+  );
+  hBar.position.set(px + nx * mullionDepth, win.y0 + h * 0.62, pz + nz * mullionDepth);
+  group.add(hBar);
+
+  // Sill protruding into the room.
+  const sill = new THREE.Mesh(
+    new THREE.BoxGeometry(alongX ? w + 0.24 : 0.4, 0.08, alongX ? 0.4 : w + 0.24),
+    materials.metal
+  );
+  sill.position.set(px + nx * 0.14, win.y0 - 0.045, pz + nz * 0.14);
+  group.add(sill);
+
+  // Soft additive halo just inside the wall: the "light from nowhere" bloom.
+  const halo = new THREE.Mesh(new THREE.PlaneGeometry(w * 2.0, h * 1.8), materials.glowFor(color));
+  halo.position.set(px + nx * 0.12, yMid, pz + nz * 0.12);
+  halo.rotation.y = faceRotation();
+  group.add(halo);
+}

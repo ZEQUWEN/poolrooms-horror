@@ -67,6 +67,23 @@
               </select>
               <p id="quality-description" class="field-help"></p>
             </fieldset>
+
+            <fieldset>
+              <legend>Controls</legend>
+              <label for="control-scheme">Control scheme</label>
+              <select id="control-scheme" data-setting="controlScheme">
+                <option value="auto" selected>Auto — match my device</option>
+                <option value="desktop">Desktop — keyboard + mouse</option>
+                <option value="touch">Touch — joystick + drag look</option>
+              </select>
+              <p id="controls-description" class="field-help"></p>
+            </fieldset>
+
+            <fieldset id="touch-fieldset">
+              <legend>Touch</legend>
+              <label for="touch-sensitivity">Look sensitivity <output id="touch-value">100%</output></label>
+              <input id="touch-sensitivity" data-setting="touchSensitivity" type="range" min="40" max="200" step="5" value="100" />
+            </fieldset>
           </form>
         </div>
       </section>
