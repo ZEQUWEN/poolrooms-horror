@@ -43,11 +43,11 @@ export const PLAYER_CONFIG = Object.freeze({
  * Dispatches `statechange` with { state, submerged, waterDepth }.
  */
 export class PlayerController extends EventTarget {
-  constructor(camera, domElement, world, water, spawn = new THREE.Vector3(0, 0, 9)) {
+  constructor(camera, domElement, world, spawn = new THREE.Vector3(0, 0, 9)) {
     super();
     this.camera = camera;
     this.world = world;
-    this.water = water;
+    this.waterAtFeet = null;
     this.controls = new PointerLockControls(camera, domElement);
     this.controls.pointerSpeed = 0.85;
 
@@ -81,7 +81,8 @@ export class PlayerController extends EventTarget {
   }
 
   getSnapshot() {
-    return { state: this.state, submerged: this.submerged, waterDepth: Math.max(0, this.water.level - this.feet.y) };
+    const level = this.waterAtFeet ? this.waterAtFeet.level : 0;
+    return { state: this.state, submerged: this.submerged, waterDepth: Math.max(0, level - this.feet.y) };
   }
 
   handleKey(event, pressed) {
@@ -102,7 +103,8 @@ export class PlayerController extends EventTarget {
   update(delta, elapsed) {
     const dt = Math.min(delta, 0.05);
     const config = PLAYER_CONFIG;
-    const inWater = this.feet.y < this.water.level - config.waterEntryMargin;
+    this.waterAtFeet = this.world.getWaterState(this.feet.x, this.feet.z, elapsed);
+    const inWater = this.waterAtFeet !== null && this.feet.y < this.waterAtFeet.level - config.waterEntryMargin;
     const crouching = this.controls.isLocked && this.input.crouch;
 
     // Movement direction on the horizontal plane, relative to the view yaw.
@@ -155,10 +157,15 @@ export class PlayerController extends EventTarget {
 
     this.probe.copy(this.feet);
     this.probe[axis] += amount;
-    this.world.resolveHorizontal(this.probe, radius);
 
-    // Check the ground at the leading edge of the player body, so walls
-    // (for example the pool edge seen from inside the pool) block early.
+    // Exact disk test against the level union: walls, pillars and seams.
+    if (!this.world.canStand(this.probe.x, this.probe.z, radius)) {
+      this.velocity[axis] = 0;
+      return;
+    }
+
+    // Check the ground at the leading edge of the player body, so basin
+    // walls seen from inside the water block early.
     const leadOffset = Math.sign(amount) * radius;
     const leadX = axis === 'x' ? this.probe.x + leadOffset : this.probe.x;
     const leadZ = axis === 'z' ? this.probe.z + leadOffset : this.probe.z;
@@ -183,9 +190,10 @@ export class PlayerController extends EventTarget {
 
   updateWaterState(elapsed) {
     const { position } = this.camera;
-    const surface = this.water.heightAt(position.x, position.z, elapsed);
-    const aquatic = this.feet.y < this.water.level - PLAYER_CONFIG.waterEntryMargin;
-    const submerged = aquatic && position.y < surface;
+    const atCamera = this.world.getWaterState(position.x, position.z, elapsed);
+    const surface = atCamera ? atCamera.surface : null;
+    const aquatic = this.waterAtFeet !== null && this.feet.y < this.waterAtFeet.level - PLAYER_CONFIG.waterEntryMargin;
+    const submerged = aquatic && surface !== null && position.y < surface;
     const state = aquatic ? 'aquatic' : 'grounded';
 
     if (state === this.state && submerged === this.submerged) return;

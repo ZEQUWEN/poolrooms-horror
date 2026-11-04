@@ -6,6 +6,9 @@ const settings = new SettingsStore();
 const engine = new GameEngine(document.querySelector('#game-canvas'), settings);
 const { player } = engine;
 
+document.querySelector('#seed-line').textContent =
+  `Sector seed ${engine.seed} — replay this exact layout with ?seed=${engine.seed}`;
+
 const body = document.body;
 const mainMenu = document.querySelector('#main-menu');
 const settingsPanel = document.querySelector('#settings-panel');
