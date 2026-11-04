@@ -1,5 +1,5 @@
 import {
-  floorRect, ceilingRect, wallSeg, subtractRects, cylinderPillar, vaultCeiling, archRib, lightShaft
+  floorRect, ceilingRect, wallSeg, subtractRects, cylinderPillar, vaultCeiling, archRib, lightShaft, pipeRun
 } from './kit.js';
 
 /** Builds one corridor archetype into `group`. `walls` are its segments. */
@@ -66,5 +66,58 @@ export function buildCorridor(group, corridor, walls, materials) {
     for (const pillar of corridor.pillars ?? []) {
       cylinderPillar(group, pillar.x, pillar.z, pillar.r, 0, corridor.height, materials.wall, 18);
     }
+  }
+
+  // Ceiling pipe runs in walk corridors (трубы).
+  if (corridor.kind !== 'dive') {
+    corridor.rects.forEach((r, index) => {
+      const long = r.x1 - r.x0 >= r.z1 - r.z0;
+      const y = corridor.height - 0.32;
+      const off = index % 2 === 0 ? 0.55 : 0.85;
+      if (long) {
+        pipeRun(group, [r.x0, y, r.z0 + off], [r.x1, y, r.z0 + off], 0.09, materials.metal);
+        pipeRun(group, [r.x0, y - 0.22, r.z0 + off], [r.x1, y - 0.22, r.z0 + off], 0.06, materials.metal);
+      } else {
+        pipeRun(group, [r.x0 + off, y, r.z0], [r.x0 + off, y, r.z1], 0.09, materials.metal);
+        pipeRun(group, [r.x0 + off, y - 0.22, r.z0], [r.x0 + off, y - 0.22, r.z1], 0.06, materials.metal);
+      }
+    });
+  }
+
+  if (corridor.kind === 'dive') buildDiveTunnel(group, corridor, materials);
+}
+
+/** Fully flooded swim-through pipe: shell, rib frames and guide lights. */
+function buildDiveTunnel(group, corridor, materials) {
+  const r = corridor.rects[0];
+  const y0 = corridor.floorY;
+  const top = y0 + corridor.height;
+  floorRect(group, r, y0, materials.pool);
+  ceilingRect(group, r, top, materials.pool);
+  wallSeg(group, { x0: r.x0, z0: r.z0, x1: r.x1, z1: r.z0 }, y0, top, materials.pool);
+  wallSeg(group, { x0: r.x0, z0: r.z1, x1: r.x1, z1: r.z1 }, y0, top, materials.pool);
+  wallSeg(group, { x0: r.x0, z0: r.z0, x1: r.x0, z1: r.z1 }, y0, top, materials.pool);
+  wallSeg(group, { x0: r.x1, z0: r.z0, x1: r.x1, z1: r.z1 }, y0, top, materials.pool);
+  const long = r.x1 - r.x0 >= r.z1 - r.z0;
+  const length = long ? r.x1 - r.x0 : r.z1 - r.z0;
+  const start = long ? r.x0 : r.z0;
+  for (let at = start + 1.2; at < start + length - 0.4; at += 2.4) {
+    const frameY = (y0 + top) / 2;
+    if (long) {
+      pipeRun(group, [r.x0 + 0.06, frameY, at], [r.x1 - 0.06, frameY, at], 0.05, materials.metal);
+      pipeRun(group, [r.x0 + 0.06, top - 0.06, at], [r.x1 - 0.06, top - 0.06, at], 0.05, materials.metal);
+    } else {
+      pipeRun(group, [at, frameY, r.z0 + 0.06], [at, frameY, r.z1 - 0.06], 0.05, materials.metal);
+      pipeRun(group, [at, top - 0.06, r.z0 + 0.06], [at, top - 0.06, r.z1 - 0.06], 0.05, materials.metal);
+    }
+  }
+  // Guide light lines along both top corners.
+  const glowY = top - 0.12;
+  if (long) {
+    pipeRun(group, [r.x0 + 0.1, glowY, r.z0 + 0.1], [r.x1 - 0.1, glowY, r.z0 + 0.1], 0.02, materials.poolLight);
+    pipeRun(group, [r.x0 + 0.1, glowY, r.z1 - 0.1], [r.x1 - 0.1, glowY, r.z1 - 0.1], 0.02, materials.poolLight);
+  } else {
+    pipeRun(group, [r.x0 + 0.1, glowY, r.z0 + 0.1], [r.x0 + 0.1, glowY, r.z1 - 0.1], 0.02, materials.poolLight);
+    pipeRun(group, [r.x1 - 0.1, glowY, r.z0 + 0.1], [r.x1 - 0.1, glowY, r.z1 - 0.1], 0.02, materials.poolLight);
   }
 }

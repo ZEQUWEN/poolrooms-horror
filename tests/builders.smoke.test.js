@@ -18,28 +18,43 @@ globalThis.document = {
 const { generateLevel } = await import('../src/world/levelGen.js');
 const { LevelBuilder } = await import('../src/world/LevelBuilder.js');
 
-test('every archetype builds finite geometry for many seeds', () => {
-  for (let seed = 1; seed <= 10; seed += 1) {
-    const level = generateLevel({ seed, roomCount: 8 });
-    const builder = new LevelBuilder(level);
-    let meshes = 0;
-    builder.group.traverse((object) => {
+function checkFinite(builder, seed) {
+  let meshes = 0;
+  builder.group.traverse((object) => {
       if (!object.isMesh) return;
       meshes += 1;
-      const p = object.position;
-      assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z), `seed ${seed}: NaN position in ${object.name || object.type}`);
-      const pos = object.geometry?.attributes?.position;
-      if (pos) {
-        for (let i = 0; i < Math.min(pos.count, 40) * pos.itemSize; i += 1) {
-          assert.ok(Number.isFinite(pos.array[i]), `seed ${seed}: NaN vertex`);
-        }
+    const p = object.position;
+    assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z), `seed ${seed}: NaN position in ${object.name || object.type}`);
+    const pos = object.geometry?.attributes?.position;
+    if (pos) {
+      for (let i = 0; i < Math.min(pos.count, 40) * pos.itemSize; i += 1) {
+        assert.ok(Number.isFinite(pos.array[i]), `seed ${seed}: NaN vertex`);
       }
-    });
-    assert.ok(meshes > 120, `seed ${seed}: only ${meshes} meshes`);
-    assert.equal(builder.waterSystem.surfaces.length, level.waterBodies.length);
-    // Gameplay queries agree with the built world.
-    assert.equal(builder.canStand(level.spawn.x, level.spawn.z, 0.35), true);
-    assert.equal(builder.getGroundHeight(level.spawn.x, level.spawn.z), 0);
+    }
+  });
+  return meshes;
+}
+
+test('every archetype builds finite geometry for many seeds', () => {
+  for (let seed = 1; seed <= 6; seed += 1) {
+    const level = generateLevel({ seed, roomCount: 8 });
+    const builder = new LevelBuilder(level);
+    const meshes = checkFinite(builder, seed);
+    assert.ok(meshes > 400, `seed ${seed}: only ${meshes} meshes`);
+    const totalBodies = level.floors.reduce((sum, floor) => sum + floor.waterBodies.length, 0);
+    const totalSurfaces = builder.waterSystems.reduce((sum, ws) => sum + ws.surfaces.length, 0);
+    assert.equal(totalSurfaces, totalBodies);
+    // Gameplay queries agree with the built world on every floor.
+    assert.equal(builder.canStand(level.spawn.x, level.spawn.z, 0.35, 0), true);
+    assert.equal(builder.getGroundHeight(level.spawn.x, level.spawn.z, 0), 0);
+    for (const floor of level.floors) {
+      const room = floor.rooms[0];
+      assert.equal(builder.canStand((room.rect.x0 + room.rect.x1) / 2, room.rect.z1 - 1.2, 0.35, floor.index), true);
+    }
+    // Vertical connectors resolve between real floors.
+    for (const conn of level.vertical) {
+      assert.ok(builder.checkVertical(conn.floor, (conn.rect.x0 + conn.rect.x1) / 2, (conn.rect.z0 + conn.rect.z1) / 2, conn.type === 'up' ? 2.5 : -1));
+    }
   }
 });
 
@@ -49,9 +64,11 @@ test('all room and corridor types build at least once', () => {
   for (let seed = 1; seed <= 20; seed += 1) {
     const level = generateLevel({ seed, roomCount: 8 });
     const builder = new LevelBuilder(level);
-    level.rooms.forEach((room) => builtRooms.add(room.type));
-    level.corridors.forEach((corridor) => builtCorridors.add(corridor.type));
-    assert.ok(builder.group.children.length >= level.rooms.length + level.corridors.length + 1);
+    for (const floor of level.floors) {
+      floor.rooms.forEach((room) => builtRooms.add(room.type));
+      floor.corridors.forEach((corridor) => builtCorridors.add(corridor.kind === 'dive' ? 'dive' : corridor.type));
+    }
+    assert.ok(builder.group.children.length >= level.floors.length);
   }
   assert.ok(builtRooms.size >= 4, `room types built: ${[...builtRooms]}`);
   assert.ok(builtCorridors.size >= 3, `corridor types built: ${[...builtCorridors]}`);

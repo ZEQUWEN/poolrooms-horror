@@ -4,7 +4,7 @@ import { generateLevel, sideWallLine } from '../src/world/levelGen.js';
 import { LevelCollider, deriveWalls } from '../src/world/levelLayout.js';
 
 const R = 0.35;
-const level = generateLevel({ seed: 20261104, roomCount: 8 });
+const level = generateLevel({ seed: 20261104, roomCount: 8 }).floors[0];
 const collider = new LevelCollider(level);
 
 test('doorways are open: no wall blocks a door centre', () => {
@@ -115,6 +115,50 @@ test('basin floors, steps and flooded halls report sane heights', () => {
   const first = level.rooms[0];
   assert.equal(collider.getGroundHeight((first.rect.x0 + first.rect.x1) / 2, first.rect.z1 - 1.2), 0);
   assert.equal(collider.getWaterState((first.rect.x0 + first.rect.x1) / 2, first.rect.z1 - 1.2, 0), null);
+});
+
+test('dive tunnels are swim-throughable: centreline standable, floor at pipe bottom', () => {
+  const full = generateLevel({ seed: 20261104, roomCount: 8 });
+  for (const floor of full.floors) {
+    const col = new LevelCollider(floor);
+    for (const dive of floor.corridors.filter((c) => c.kind === 'dive')) {
+      const r = dive.rects[0];
+      const long = r.x1 - r.x0 >= r.z1 - r.z0;
+      for (const t of [0.15, 0.5, 0.85]) {
+        const x = long ? r.x0 + (r.x1 - r.x0) * t : (r.x0 + r.x1) / 2;
+        const z = long ? (r.z0 + r.z1) / 2 : r.z0 + (r.z1 - r.z0) * t;
+        assert.equal(col.canStand(x, z, 0.35), true, `${dive.id} centreline blocked`);
+        assert.equal(col.getGroundHeight(x, z), dive.floorY, `${dive.id} floor`);
+        const ws = col.getWaterState(x, z, 0);
+        assert.ok(ws && ws.level > dive.floorY, `${dive.id} flooded`);
+      }
+      // Mouths: a point just inside each basin at the mouth centre is standable.
+      const from = floor.rooms.find((room) => room.id === dive.from);
+      const mouth = from.features.basins[0].mouths[0];
+      const u = (mouth.u0 + mouth.u1) / 2;
+      const line = mouth.side === 'N' ? from.features.basins[0].rect.z0 + 0.3
+        : mouth.side === 'S' ? from.features.basins[0].rect.z1 - 0.3
+        : mouth.side === 'W' ? from.features.basins[0].rect.x0 + 0.3 : from.features.basins[0].rect.x1 - 0.3;
+      const mx = mouth.side === 'N' || mouth.side === 'S' ? u : line;
+      const mz = mouth.side === 'N' || mouth.side === 'S' ? line : u;
+      assert.equal(col.canStand(mx, mz, 0.35), true, `${dive.id} mouth blocked`);
+    }
+  }
+});
+
+test('floor hatches drop the player and stair landings trigger up-connectors', () => {
+  const full = generateLevel({ seed: 20261104, roomCount: 8 });
+  for (const conn of full.vertical) {
+    const floor = full.floors[conn.floor];
+    const col = new LevelCollider(floor);
+    const cx = (conn.rect.x0 + conn.rect.x1) / 2;
+    const cz = (conn.rect.z0 + conn.rect.z1) / 2;
+    if (conn.type === 'down') {
+      assert.ok(col.getGroundHeight(cx, cz) <= -3, 'hatch must be a hole');
+    } else {
+      assert.ok(col.getGroundHeight(cx, cz) >= 2.5, 'landing top reachable');
+    }
+  }
 });
 
 test('pillars and solid blocks reject the player disk', () => {

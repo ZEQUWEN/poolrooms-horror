@@ -29,10 +29,21 @@ rooms joined by corridors, rejection-sampled so footprints never overlap and
 every doorway opens onto dry, obstacle-free deck. The seed is shown in the
 main menu and can be pinned with `?seed=12345`.
 
-Room archetypes: `poolHall`, `colonnade`, `rotunda`, `grandStair`, `lanePool`.
-Corridor archetypes: `archVault` (flooded vaulted tunnel), `darkChannel`
-(dim passage with a shallow channel and light shafts), `scallop` (undulating
-pilaster walls). See `docs/AUDIT.md` for the layout-logic screening report.
+The level is a stack of three floors (main halls, an upper floor and a
+sublevel) joined into one looping network:
+
+- walk corridors: `archVault` (flooded vaulted tunnel), `darkChannel` (dim
+  passage with a shallow channel and light shafts), `scallop` (undulating
+  pilaster walls), plus graph loop closures (rings);
+- dive tunnels: fully flooded pipes joining two basins under the deck —
+  swim-through only, with rib frames and guide lights;
+- vertical connectors: stairwell tower rooms with a stair up to a glow hatch
+  or a floor hatch with a ladder shaft down, pairing floors into rings.
+
+Room archetypes: `poolHall`, `colonnade`, `rotunda`, `grandStair`, `lanePool`,
+`stairwell`. Basins carry floor drains, wall overflow grates, inflow pipes and
+corner risers for industrial variety. See `docs/AUDIT.md` for the layout-logic
+screening report.
 
 ## Structure
 

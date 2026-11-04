@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import {
   floorRect, ceilingRect, wallSeg, subtractRects, cylinderPillar, boxPillar,
   basinShell, islandBlock, landingBlock, stairRunSteps, handrailEdge, niche,
-  lifebuoy, windowPanel, oculusCeiling, ceilingBeams, slopedRibCeiling
+  lifebuoy, windowPanel, oculusCeiling, ceilingBeams, slopedRibCeiling,
+  floorDrain, overflowGrate, inflowPipe, riserPipe, hatchGlow, hatchShaft
 } from './kit.js';
 
 function sideLine(r, side) {
@@ -23,9 +24,11 @@ export function buildRoom(group, room, walls, materials) {
   const f = room.features;
   const basin = f.basins[0] ?? null;
 
-  // Deck floor: room rect minus the basin hole.
-  const deckPieces = basin ? subtractRects(r, [basin.rect]) : [r];
+  // Deck floor: room rect minus basin and hatch holes.
+  const holes = [...f.basins.map((b) => b.rect), ...f.holes.map((h) => h.rect)];
+  const deckPieces = subtractRects(r, holes);
   for (const piece of deckPieces) floorRect(group, piece, 0, materials.deck);
+  for (const hole of f.holes) hatchShaft(group, hole.rect, hole.depth, materials);
 
   if (basin) basinShell(group, basin, materials.pool);
   for (const island of f.islands) islandBlock(group, island, basin?.depth ?? 1.5, materials.deck);
@@ -66,6 +69,23 @@ export function buildRoom(group, room, walls, materials) {
   }
   if (f.decor.beams) ceilingBeams(group, r, room.height, materials);
 
+  // Corner riser pipes (трубы).
+  const risers = f.decor.pipes.risers ?? 0;
+  const cornerSpots = [
+    [r.x0 + 0.45, r.z0 + 0.45], [r.x1 - 0.45, r.z0 + 0.45],
+    [r.x0 + 0.45, r.z1 - 0.45], [r.x1 - 0.45, r.z1 - 0.45]
+  ];
+  for (const [x, z] of cornerSpots.slice(0, risers)) riserPipe(group, x, z, 0, room.height, materials.metal);
+
+  // Stairwell furniture: glow hatch above the landing, rails around hatches.
+  if (f.stairwell?.variant === 'up' && f.stairwell.hatch) hatchGlow(group, f.stairwell.hatch, room.height, materials);
+  for (const hole of f.holes) {
+    // Rails on three sides; the ladder side stays open.
+    handrailEdge(group, hole.rect, 'S', materials.metal, 0.12);
+    handrailEdge(group, hole.rect, 'E', materials.metal, 0.12);
+    handrailEdge(group, hole.rect, 'W', materials.metal, 0.12);
+  }
+
   // Decor.
   if (f.decor.niches) {
     for (const u of usOnSide(r, f.decor.niches, 3)) niche(group, f.decor.niches, sideLine(r, f.decor.niches), u, materials);
@@ -90,6 +110,17 @@ export function buildRoom(group, room, walls, materials) {
     }
   }
   if (basin) {
+    // Floor drains and wall overflow grates (стоки).
+    for (const drain of basin.drains ?? []) floorDrain(group, drain.x, drain.z, drain.r, -basin.depth, materials);
+    const overflowSide = basin.stairs ? basin.stairs.side : 'N';
+    for (const u of usOnSide(basin.rect, overflowSide === 'N' ? 'S' : 'N', 2, 1.5)) {
+      overflowGrate(group, overflowSide === 'N' ? 'S' : 'N', sideLine(basin.rect, overflowSide === 'N' ? 'S' : 'N'), u, basin.level - 0.12, materials);
+    }
+    if (f.decor.pipes.inflow) {
+      const { side, u } = f.decor.pipes.inflow;
+      const span = side === 'N' || side === 'S' ? [basin.rect.x0, basin.rect.x1] : [basin.rect.z0, basin.rect.z1];
+      inflowPipe(group, side, sideLine(r, side), span[0] + u * (span[1] - span[0]), 1.5, 1.3, materials);
+    }
     // Underwater glow strips along two basin walls.
     const stripY = basin.level - 0.35;
     const far = new THREE.Mesh(new THREE.BoxGeometry(basin.rect.x1 - basin.rect.x0 - 0.2, 0.06, 0.04), materials.poolLight);

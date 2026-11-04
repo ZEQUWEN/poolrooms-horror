@@ -53,6 +53,7 @@ export class PlayerController extends EventTarget {
 
     this.input = { forward: false, backward: false, left: false, right: false, crouch: false };
     this.feet = spawn.clone();
+    this.floor = spawn.floor ?? 0;
     this.velocity = new THREE.Vector3();
     this.eyeHeight = PLAYER_CONFIG.standEyeHeight;
     this.state = 'grounded';
@@ -82,7 +83,7 @@ export class PlayerController extends EventTarget {
 
   getSnapshot() {
     const level = this.waterAtFeet ? this.waterAtFeet.level : 0;
-    return { state: this.state, submerged: this.submerged, waterDepth: Math.max(0, level - this.feet.y) };
+    return { state: this.state, submerged: this.submerged, waterDepth: Math.max(0, level - this.feet.y), floor: this.floor };
   }
 
   handleKey(event, pressed) {
@@ -103,7 +104,7 @@ export class PlayerController extends EventTarget {
   update(delta, elapsed) {
     const dt = Math.min(delta, 0.05);
     const config = PLAYER_CONFIG;
-    this.waterAtFeet = this.world.getWaterState(this.feet.x, this.feet.z, elapsed);
+    this.waterAtFeet = this.world.getWaterState(this.feet.x, this.feet.z, elapsed, this.floor);
     const inWater = this.waterAtFeet !== null && this.feet.y < this.waterAtFeet.level - config.waterEntryMargin;
     const crouching = this.controls.isLocked && this.input.crouch;
 
@@ -138,10 +139,19 @@ export class PlayerController extends EventTarget {
     if (inWater) this.velocity.y *= Math.exp(-config.waterDrag * dt);
     this.feet.y += this.velocity.y * dt;
 
-    const ground = this.world.getGroundHeight(this.feet.x, this.feet.z);
+    const ground = this.world.getGroundHeight(this.feet.x, this.feet.z, this.floor);
     if (this.feet.y <= ground) {
       this.feet.y = ground;
       this.velocity.y = 0;
+    }
+
+    // Vertical connectors: stair hatches up and floor hatches down.
+    const connector = this.world.checkVertical(this.floor, this.feet.x, this.feet.z, this.feet.y);
+    if (connector) {
+      this.floor = connector.toFloor;
+      this.feet.set(connector.to.x, connector.to.y, connector.to.z);
+      this.velocity.set(0, 0, 0);
+      this.dispatchEvent(new CustomEvent('floorchange', { detail: { floor: this.floor, type: connector.type } }));
     }
 
     const targetEye = crouching ? config.crouchEyeHeight : config.standEyeHeight;
@@ -159,7 +169,7 @@ export class PlayerController extends EventTarget {
     this.probe[axis] += amount;
 
     // Exact disk test against the level union: walls, pillars and seams.
-    if (!this.world.canStand(this.probe.x, this.probe.z, radius)) {
+    if (!this.world.canStand(this.probe.x, this.probe.z, radius, this.floor)) {
       this.velocity[axis] = 0;
       return;
     }
@@ -169,7 +179,7 @@ export class PlayerController extends EventTarget {
     const leadOffset = Math.sign(amount) * radius;
     const leadX = axis === 'x' ? this.probe.x + leadOffset : this.probe.x;
     const leadZ = axis === 'z' ? this.probe.z + leadOffset : this.probe.z;
-    if (this.world.getGroundHeight(leadX, leadZ) - this.feet.y > stepHeight) {
+    if (this.world.getGroundHeight(leadX, leadZ, this.floor) - this.feet.y > stepHeight) {
       this.velocity[axis] = 0;
       return;
     }
@@ -177,7 +187,7 @@ export class PlayerController extends EventTarget {
     this.feet.x = this.probe.x;
     this.feet.z = this.probe.z;
 
-    const centerGround = this.world.getGroundHeight(this.feet.x, this.feet.z);
+    const centerGround = this.world.getGroundHeight(this.feet.x, this.feet.z, this.floor);
     if (centerGround > this.feet.y) {
       this.feet.y = centerGround;
       if (this.velocity.y < 0) this.velocity.y = 0;
@@ -185,12 +195,13 @@ export class PlayerController extends EventTarget {
   }
 
   syncCamera() {
-    this.camera.position.set(this.feet.x, this.feet.y + this.eyeHeight, this.feet.z);
+    const offset = this.world.floorOffset ? this.world.floorOffset(this.floor) : 0;
+    this.camera.position.set(this.feet.x, this.feet.y + this.eyeHeight + offset, this.feet.z);
   }
 
   updateWaterState(elapsed) {
     const { position } = this.camera;
-    const atCamera = this.world.getWaterState(position.x, position.z, elapsed);
+    const atCamera = this.world.getWaterState(position.x, position.z, elapsed, this.floor);
     const surface = atCamera ? atCamera.surface : null;
     const aquatic = this.waterAtFeet !== null && this.feet.y < this.waterAtFeet.level - PLAYER_CONFIG.waterEntryMargin;
     const submerged = aquatic && surface !== null && position.y < surface;

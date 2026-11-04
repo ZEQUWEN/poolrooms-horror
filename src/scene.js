@@ -68,9 +68,16 @@ export class GameEngine {
 
     // One cheap point light per room/corridor from the generator, capped.
     this.roomLights = [];
-    for (const spec of this.level.lights.slice(0, MAX_POINT_LIGHTS)) {
+    const specs = [];
+    this.level.floors.forEach((floor, index) => {
+      // Main floor keeps corridor lamps; side floors rely on room lights and
+      // emissives so the forward-renderer light budget stays sane.
+      const lights = index === 0 ? floor.lights : floor.lights.filter((spec) => spec.intensity > 20);
+      for (const spec of lights) specs.push({ spec, offset: this.world.floorOffset(index) });
+    });
+    for (const { spec, offset } of specs.slice(0, MAX_POINT_LIGHTS)) {
       const light = new THREE.PointLight(spec.color, spec.intensity, spec.distance, 2);
-      light.position.set(...spec.position);
+      light.position.set(spec.position[0], spec.position[1] + offset, spec.position[2]);
       this.scene.add(light);
       this.roomLights.push(light);
     }
@@ -83,7 +90,7 @@ export class GameEngine {
     this.cyanLight = this.createShadowLight('#2fe9ff', 38, [cx + 6.5, 2.6, cz - 3]);
     this.shadowLights = [this.magentaLight, this.cyanLight];
 
-    const basin = spawnRoom.features.basins[0];
+    const basin = spawnRoom.features.basins[0] ?? { rect: spawnRoom.rect, level: -0.3 };
     this.poolGlow = new THREE.PointLight('#35f2ff', 10, 11, 2);
     this.poolGlow.position.set((basin.rect.x0 + basin.rect.x1) / 2, basin.level - 0.8, (basin.rect.z0 + basin.rect.z1) / 2);
     this.scene.add(this.poolGlow);

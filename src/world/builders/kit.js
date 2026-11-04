@@ -95,6 +95,32 @@ export function basinShell(group, basin, material) {
     if (side === 'W') wallSeg(group, { x0: r.x0, z0: r.z0, x1: r.x0, z1: r.z1 }, -basin.depth, 0, material);
     if (side === 'E') wallSeg(group, { x0: r.x1, z0: r.z0, x1: r.x1, z1: r.z1 }, -basin.depth, 0, material);
   }
+  for (const mouth of basin.mouths ?? []) {
+    const side = mouth.side;
+    const h = mouth.top - mouth.bottom;
+    const yMid = (mouth.top + mouth.bottom) / 2;
+    // Rim frame around the opening so the pipe mouth reads clearly.
+    const rimMat = material;
+    if (side === 'N' || side === 'S') {
+      const z = side === 'N' ? r.z0 : r.z1;
+      wallSeg(group, { x0: r.x0, z0: z, x1: mouth.u0, z1: z }, -basin.depth, 0, material);
+      wallSeg(group, { x0: mouth.u1, z0: z, x1: r.x1, z1: z }, -basin.depth, 0, material);
+      wallSeg(group, { x0: mouth.u0, z0: z, x1: mouth.u1, z1: z }, mouth.top, 0, material);
+      const lintel = new THREE.Mesh(new THREE.BoxGeometry(mouth.u1 - mouth.u0 + 0.3, 0.18, 0.24), rimMat);
+      lintel.position.set((mouth.u0 + mouth.u1) / 2, mouth.top + 0.09, z);
+      group.add(lintel);
+      void yMid; void h;
+    } else {
+      const x = side === 'W' ? r.x0 : r.x1;
+      wallSeg(group, { x0: x, z0: r.z0, x1: x, z1: mouth.u0 }, -basin.depth, 0, material);
+      wallSeg(group, { x0: x, z0: mouth.u1, x1: x, z1: r.z1 }, -basin.depth, 0, material);
+      wallSeg(group, { x0: x, z0: mouth.u0, x1: x, z1: mouth.u1 }, mouth.top, 0, material);
+      const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.18, mouth.u1 - mouth.u0 + 0.3), rimMat);
+      lintel.position.set(x, mouth.top + 0.09, (mouth.u0 + mouth.u1) / 2);
+      group.add(lintel);
+      void yMid; void h;
+    }
+  }
   if (!basin.stairs) return;
   const { stairs } = basin;
   for (let step = 0; step < stairs.count; step += 1) {
@@ -391,6 +417,113 @@ export function slopedRibCeiling(group, r, side, height, materials) {
       const y0 = height - drop - 0.4 + rw * 0.9;
       windowPanel(group, side, side === 'N' ? r.z0 : side === 'S' ? r.z1 : side === 'W' ? r.x0 : r.x1, u0, u1, y0, y0 + 0.55, materials.windowLight);
     }
+  }
+}
+
+/** Axis-aligned pipe segment between two points. */
+export function pipeRun(group, a, b, radius, material) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const dz = b[2] - a[2];
+  const length = Math.hypot(dx, dy, dz);
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 12), material);
+  mesh.position.set((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
+  if (Math.abs(dx) > 1e-9) mesh.rotation.z = Math.PI / 2;
+  else if (Math.abs(dz) > 1e-9) mesh.rotation.x = Math.PI / 2;
+  mesh.castShadow = true;
+  group.add(mesh);
+  return mesh;
+}
+
+/** Vertical riser pipe with brackets in a room corner. */
+export function riserPipe(group, x, z, y0, y1, material) {
+  pipeRun(group, [x, y0, z], [x, y1, z], 0.11, material);
+  for (let y = y0 + 1.2; y < y1 - 0.4; y += 2.2) {
+    const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.3), material);
+    bracket.position.set(x, y, z);
+    group.add(bracket);
+  }
+}
+
+/** Floor drain: dark disc with a metal grate (стоки). */
+export function floorDrain(group, x, z, radius, y, materials) {
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(radius, 20), materials.dark);
+  disc.rotation.x = -Math.PI / 2;
+  disc.position.set(x, y + 0.015, z);
+  group.add(disc);
+  for (let i = 0; i < 3; i += 1) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(radius * 1.8, 0.03, 0.05), materials.metal);
+    bar.position.set(x, y + 0.03, z + (i - 1) * radius * 0.5);
+    group.add(bar);
+  }
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.04, 6, 20), materials.metal);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.set(x, y + 0.03, z);
+  group.add(ring);
+}
+
+/** Wall overflow grate at the water line (сток на стене). */
+export function overflowGrate(group, side, wallLine, u, y, materials) {
+  const inward = side === 'N' ? 0.05 : side === 'S' ? -0.05 : 0;
+  const inwardX = side === 'W' ? 0.05 : side === 'E' ? -0.05 : 0;
+  const alongX = side === 'N' || side === 'S';
+  const box = new THREE.Mesh(new THREE.BoxGeometry(alongX ? 1.1 : 0.1, 0.5, alongX ? 0.1 : 1.1), materials.dark);
+  box.position.set(alongX ? u : wallLine + inwardX, y, alongX ? wallLine + inward : u);
+  group.add(box);
+  for (let i = -1; i <= 1; i += 1) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(alongX ? 1.0 : 0.04, 0.04, alongX ? 0.04 : 1.0), materials.metal);
+    bar.position.set(alongX ? u : wallLine + inwardX + 0.04, y + i * 0.15, alongX ? wallLine + inward + 0.04 : u);
+    group.add(bar);
+  }
+}
+
+/** Inflow pipe discharging over a basin, with a falling water streak. */
+export function inflowPipe(group, side, wallLine, u, y, reach, materials) {
+  const inward = side === 'N' ? 1 : side === 'S' ? -1 : 0;
+  const inwardX = side === 'W' ? 1 : side === 'E' ? -1 : 0;
+  const startX = side === 'N' || side === 'S' ? u : wallLine;
+  const startZ = side === 'N' || side === 'S' ? wallLine : u;
+  const endX = startX + inwardX * reach;
+  const endZ = startZ + inward * reach;
+  pipeRun(group, [startX, y, startZ], [endX, y, endZ], 0.16, materials.metal);
+  pipeRun(group, [startX, y + 0.5, startZ], [startX, y, startZ], 0.16, materials.metal);
+  const mouth = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.3, 12), materials.metal);
+  mouth.position.set(endX, y - 0.1, endZ);
+  group.add(mouth);
+  const streak = new THREE.Mesh(new THREE.PlaneGeometry(0.22, y + 0.3), materials.shaftLight.clone());
+  streak.material.transparent = true;
+  streak.material.opacity = 0.28;
+  streak.position.set(endX, (y - 0.2) / 2 - 0.6, endZ);
+  group.add(streak);
+}
+
+/** Dark hatch with a glow seam above a stairwell landing. */
+export function hatchGlow(group, r, y, materials) {
+  const lid = new THREE.Mesh(new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0), materials.dark);
+  lid.rotation.x = Math.PI / 2;
+  lid.position.set((r.x0 + r.x1) / 2, y - 0.02, (r.z0 + r.z1) / 2);
+  group.add(lid);
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry((r.x1 - r.x0) * 0.8, (r.z1 - r.z0) * 0.8), materials.stripLight);
+  glow.rotation.x = Math.PI / 2;
+  glow.position.set((r.x0 + r.x1) / 2, y - 0.05, (r.z0 + r.z1) / 2);
+  group.add(glow);
+}
+
+/** Hatch shaft: dark walls descending, plus a simple ladder. */
+export function hatchShaft(group, hole, depth, materials) {
+  const y0 = -Math.min(depth, 3.6);
+  wallSeg(group, { x0: hole.x0, z0: hole.z0, x1: hole.x1, z1: hole.z0 }, y0, 0, materials.dark);
+  wallSeg(group, { x0: hole.x0, z0: hole.z1, x1: hole.x1, z1: hole.z1 }, y0, 0, materials.dark);
+  wallSeg(group, { x0: hole.x0, z0: hole.z0, x1: hole.x0, z1: hole.z1 }, y0, 0, materials.dark);
+  wallSeg(group, { x0: hole.x1, z0: hole.z0, x1: hole.x1, z1: hole.z1 }, y0, 0, materials.dark);
+  floorRect(group, hole, y0, materials.dark);
+  // Ladder on the north side of the shaft.
+  const lx0 = hole.x0 + 0.35;
+  const lx1 = hole.x1 - 0.35;
+  pipeRun(group, [lx0, y0 + 0.2, hole.z0 + 0.12], [lx0, 0.4, hole.z0 + 0.12], 0.035, materials.metal);
+  pipeRun(group, [lx1, y0 + 0.2, hole.z0 + 0.12], [lx1, 0.4, hole.z0 + 0.12], 0.035, materials.metal);
+  for (let y = y0 + 0.5; y < 0.3; y += 0.35) {
+    pipeRun(group, [lx0, y, hole.z0 + 0.12], [lx1, y, hole.z0 + 0.12], 0.025, materials.metal);
   }
 }
 

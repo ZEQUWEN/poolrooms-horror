@@ -50,7 +50,7 @@ export function levelRects(level) {
   const rects = [];
   for (const room of level.rooms) rects.push({ rect: room.rect, owner: room.id, kind: 'room', height: room.height, room });
   for (const corridor of level.corridors) {
-    corridor.rects.forEach((r, index) => rects.push({ rect: r, owner: `${corridor.id}#${index}`, kind: 'corridor', height: corridor.height, corridor, index }));
+    corridor.rects.forEach((r, index) => rects.push({ rect: r, owner: `${corridor.id}#${index}`, kind: 'corridor', height: corridor.height, corridor, index, noClip: corridor.noClip === true }));
   }
   return rects;
 }
@@ -77,6 +77,7 @@ export function deriveWalls(level) {
       const cuts = [];
       for (const other of rects) {
         if (other === entry) continue;
+        if (other.noClip && entry.kind === 'room') continue; // dive tunnels pass under walls
         const o = other.rect;
         const strictlyAcross = edge.axis === 'x'
           ? o.z0 < edge.fixed - EPS && o.z1 > edge.fixed + EPS
@@ -126,6 +127,9 @@ function stairRunGround(run, x, z) {
 
 function roomGround(room, x, z) {
   const f = room.features;
+  for (const hole of f.holes) {
+    if (x > hole.rect.x0 && x < hole.rect.x1 && z > hole.rect.z0 && z < hole.rect.z1) return -hole.depth;
+  }
   for (const landing of f.landings) {
     if (x > landing.rect.x0 && x < landing.rect.x1 && z > landing.rect.z0 && z < landing.rect.z1) return landing.y;
   }
@@ -142,6 +146,7 @@ function roomGround(room, x, z) {
 }
 
 function corridorGround(corridor, x, z) {
+  if (corridor.kind === 'dive') return corridor.floorY;
   for (const body of corridor.water) {
     const r = body.rect;
     if (x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1) return -body.depth;

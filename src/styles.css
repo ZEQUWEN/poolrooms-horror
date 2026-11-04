@@ -10,6 +10,8 @@ button, input, select { font: inherit; }
 /* In-game overlays */
 #underwater-overlay { position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0; transition: opacity .3s ease; background: radial-gradient(ellipse at center, rgba(60, 225, 240, .06) 20%, rgba(2, 45, 60, .6) 100%); }
 body.is-submerged #underwater-overlay { opacity: 1; }
+#transition-overlay { position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: 0; transition: opacity .22s ease; background: radial-gradient(circle at center, rgba(2, 6, 8, .55), #020608 78%); }
+#transition-overlay.is-active { opacity: 1; }
 #crosshair { position: fixed; left: 50%; top: 50%; z-index: 2; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: rgba(236, 255, 255, .85); box-shadow: 0 0 6px rgba(80, 240, 255, .8); opacity: 0; transition: opacity .2s ease; pointer-events: none; }
 body.is-playing #crosshair { opacity: 1; }
 

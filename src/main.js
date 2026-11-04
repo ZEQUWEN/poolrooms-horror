@@ -9,6 +9,14 @@ const { player } = engine;
 document.querySelector('#seed-line').textContent =
   `Sector seed ${engine.seed} — replay this exact layout with ?seed=${engine.seed}`;
 
+const transitionOverlay = document.querySelector('#transition-overlay');
+const floorIndicator = document.querySelector('#hud-floor');
+player.addEventListener('floorchange', (event) => {
+  floorIndicator.textContent = `37.${event.detail.floor}`;
+  transitionOverlay.classList.add('is-active');
+  window.setTimeout(() => transitionOverlay.classList.remove('is-active'), 240);
+});
+
 const body = document.body;
 const mainMenu = document.querySelector('#main-menu');
 const settingsPanel = document.querySelector('#settings-panel');
