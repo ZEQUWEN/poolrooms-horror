@@ -11,7 +11,8 @@ const KEY_BINDINGS = {
   KeyD: 'right',
   ArrowRight: 'right',
   KeyC: 'crouch',
-  ControlLeft: 'crouch'
+  ControlLeft: 'crouch',
+  Space: 'swimUp'
 };
 
 export const PLAYER_CONFIG = Object.freeze({
@@ -29,7 +30,9 @@ export const PLAYER_CONFIG = Object.freeze({
   waterDrag: 2.8,
   stepHeight: 0.5,
   crouchSharpness: 10,
-  waterEntryMargin: 0.05
+  waterEntryMargin: 0.05,
+  swimUpAcceleration: 16,
+  swimUpMaxSpeed: 2.6
 });
 
 /**
@@ -52,7 +55,7 @@ export class PlayerController extends EventTarget {
     this.controls.pointerSpeed = 0.85;
     camera.rotation.order = 'YXZ';
 
-    this.input = { forward: false, backward: false, left: false, right: false, crouch: false, axis: { x: 0, y: 0 } };
+    this.input = { forward: false, backward: false, left: false, right: false, crouch: false, swimUp: false, axis: { x: 0, y: 0 } };
     this.look = { yaw: 0, pitch: 0 };
     this.mobileActive = false;
     this.feet = spawn.clone();
@@ -126,7 +129,14 @@ export class PlayerController extends EventTarget {
   }
 
   clearInput() {
-    for (const key of Object.keys(this.input)) this.input[key] = false;
+    this.input.forward = false;
+    this.input.backward = false;
+    this.input.left = false;
+    this.input.right = false;
+    this.input.crouch = false;
+    this.input.swimUp = false;
+    this.input.axis.x = 0;
+    this.input.axis.y = 0;
   }
 
   update(delta, elapsed) {
@@ -172,6 +182,11 @@ export class PlayerController extends EventTarget {
     // Vertical motion: reduced gravity and drag in water.
     this.velocity.y -= (inWater ? config.waterGravity : config.gravity) * dt;
     if (inWater) this.velocity.y *= Math.exp(-config.waterDrag * dt);
+    // Swim-up assist (touch button / Space): rise towards the surface.
+    if (inWater && this.input.swimUp) {
+      this.velocity.y += config.swimUpAcceleration * dt;
+      if (this.velocity.y > config.swimUpMaxSpeed) this.velocity.y = config.swimUpMaxSpeed;
+    }
     this.feet.y += this.velocity.y * dt;
 
     const ground = this.world.getGroundHeight(this.feet.x, this.feet.z, this.floor);

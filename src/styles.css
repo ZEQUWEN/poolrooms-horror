@@ -49,8 +49,10 @@ body.has-touch.is-playing #touch-ui { display: block; }
 #stick-knob { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, rgba(190, 252, 255, .9), rgba(38, 170, 190, .75)); box-shadow: 0 0 14px rgba(64, 230, 255, .45); }
 #btn-crouch, #btn-pause { position: fixed; right: 18px; width: 74px; height: 74px; border-radius: 50%; border: 1px solid rgba(127, 247, 255, .55); background: rgba(6, 32, 42, .42); color: #bffcff; font: 700 .72rem 'Space Mono', monospace; letter-spacing: .08em; cursor: pointer; touch-action: none; }
 #btn-crouch { bottom: calc(26px + env(safe-area-inset-bottom, 0px)); }
-#btn-pause { bottom: calc(112px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; }
-#btn-crouch.is-on { background: rgba(45, 235, 255, .3); box-shadow: 0 0 16px rgba(64, 230, 255, .5); }
+#btn-up { bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
+#btn-pause { top: calc(12px + env(safe-area-inset-top, 0px)); right: 14px; width: 52px; height: 52px; }
+#btn-crouch.is-on, #btn-up.is-on { background: rgba(45, 235, 255, .3); box-shadow: 0 0 16px rgba(64, 230, 255, .5); }
+body:not(.has-touch) #touch-fieldset { display: none; }
 
 /* Settings dialog */
 .dialog-panel { display: grid; place-items: center; z-index: 3; padding: 18px; background: rgba(0, 8, 13, .62); opacity: 0; visibility: hidden; transition: opacity .22s ease, visibility .22s ease; }
@@ -72,4 +74,4 @@ body[data-player-state='aquatic'] #player-state { color: #75ffff; }
 body.is-submerged #player-state { color: #ff8ed4; }
 @media (max-width: 480px) { .dialog-card { padding: 20px; } #hud { font-size: .48rem; } }
 body.has-touch #hud { inset: calc(10px + env(safe-area-inset-top, 0px)) 14px auto; }
-@media (max-height: 420px) { #btn-crouch { width: 62px; height: 62px; } #btn-pause { width: 48px; height: 48px; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); } }
+@media (max-height: 420px) { #btn-crouch, #btn-up { width: 62px; height: 62px; } #btn-up { bottom: calc(96px + env(safe-area-inset-bottom, 0px)); } #btn-pause { width: 44px; height: 44px; } }

@@ -48,6 +48,7 @@ function updateForm(values) {
   document.querySelector('#master-value').value = `${values.masterVolume}%`;
   document.querySelector('#ambient-value').value = `${values.ambientVolume}%`;
   document.querySelector('#sfx-value').value = `${values.sfxVolume}%`;
+  document.querySelector('#touch-value').value = `${values.touchSensitivity}%`;
   const profile = QUALITY_PROFILES[values.quality] ?? QUALITY_PROFILES.medium;
   qualityDescription.textContent = profile.description;
   qualityIndicator.textContent = profile.label.toUpperCase();
@@ -80,7 +81,7 @@ const touchMode = isTouchDevice();
 let touchControls = null;
 if (touchMode) {
   body.classList.add('has-touch');
-  touchControls = new TouchControls(player);
+  touchControls = new TouchControls(player, settings);
   touchControls.addEventListener('pause', () => touchControls.deactivate());
 }
 

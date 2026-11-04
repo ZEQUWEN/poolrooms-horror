@@ -1,4 +1,4 @@
-import { applyLookDelta, joystickAxis } from './lookMath.js';
+import { applyLookDelta, joystickAxis, TOUCH_LOOK_SENSITIVITY } from './lookMath.js';
 
 export const JOYSTICK_RADIUS = 58;
 
@@ -18,10 +18,16 @@ export function isTouchDevice() {
  * works while the controls are active.
  */
 export class TouchControls extends EventTarget {
-  constructor(player) {
+  constructor(player, settings = null) {
     super();
     this.player = player;
     this.active = false;
+    this.lookFactor = 1;
+    if (settings) {
+      settings.subscribe((values) => {
+        this.lookFactor = (values.touchSensitivity ?? 100) / 100;
+      });
+    }
     this.movePointer = null;
     this.lookPointer = null;
     this.lookLast = null;
@@ -33,6 +39,7 @@ export class TouchControls extends EventTarget {
       base: document.querySelector('#stick-base'),
       knob: document.querySelector('#stick-knob'),
       crouch: document.querySelector('#btn-crouch'),
+      up: document.querySelector('#btn-up'),
       pause: document.querySelector('#btn-pause')
     };
 
@@ -55,6 +62,22 @@ export class TouchControls extends EventTarget {
       event.preventDefault();
       this.deactivate();
     });
+
+    // Hold-to-rise: swim up / break the surface.
+    const swimOn = (event) => {
+      event.preventDefault();
+      this.player.input.swimUp = true;
+      this.ui.up.classList.add('is-on');
+    };
+    const swimOff = (event) => {
+      if (event.cancelable) event.preventDefault();
+      this.player.input.swimUp = false;
+      this.ui.up.classList.remove('is-on');
+    };
+    this.ui.up.addEventListener('pointerdown', swimOn);
+    this.ui.up.addEventListener('pointerup', swimOff);
+    this.ui.up.addEventListener('pointercancel', swimOff);
+    this.ui.up.addEventListener('pointerleave', swimOff);
   }
 
   activate() {
@@ -71,6 +94,7 @@ export class TouchControls extends EventTarget {
     document.body.classList.remove('touch-active');
     this.ui.root.setAttribute('aria-hidden', 'true');
     this.ui.crouch.classList.remove('is-on');
+    this.ui.up.classList.remove('is-on');
     this.hideStick();
     this.movePointer = null;
     this.lookPointer = null;
@@ -129,7 +153,7 @@ export class TouchControls extends EventTarget {
     const dx = event.clientX - this.lookLast.x;
     const dy = event.clientY - this.lookLast.y;
     this.lookLast = { x: event.clientX, y: event.clientY };
-    this.player.applyLook(applyLookDelta(this.player.look, dx, dy));
+    this.player.applyLook(applyLookDelta(this.player.look, dx, dy, TOUCH_LOOK_SENSITIVITY * this.lookFactor));
   }
 
   endLook(event) {

@@ -18,7 +18,10 @@ On touch devices (pointer: coarse) the game switches to a smartphone layout:
 - left half of the screen — floating virtual joystick (move / wade);
 - right half — drag to look around;
 - CRCH button — toggle crouch (hold-crouch on desktop), needed to dive;
-- ❚ button — pause back to the menu.
+- ▲ button — hold to swim up and break the surface (Space on desktop);
+- ❚ button (top right) — pause back to the menu;
+- Settings → Touch → Look sensitivity (40–200 %) tunes drag-to-look speed and
+  is saved per device.
 
 Mobile runs are also cheaper: Low quality by default, capped pixel ratio,
 no shadow maps, fewer point lights and coarser water meshes. Desktop keeps
@@ -31,6 +34,7 @@ mouse + keyboard with pointer lock.
 | Mouse | Look around |
 | W A S D / Arrow keys | Move |
 | C / Left Ctrl | Crouch (hold) |
+| Space | Swim up / surface (in water) |
 | Esc | Pause menu |
 
 Note: browsers do not let a page block `Ctrl+W`. If you crouch with Left Ctrl, do not press W at the same time, or use C.
