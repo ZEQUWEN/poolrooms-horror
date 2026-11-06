@@ -102,6 +102,21 @@ function insetAsym(r, rng, minMargin, jitter) {
   );
 }
 
+/** Submerged steps so every basin can be waded into AND climbed out of.
+ *  `busySides` are walls the steps must avoid (islands, handrails). */
+function basinSteps(roomRect, islands, depth, rng, busySides = []) {
+  const touched = new Set(busySides);
+  for (const isl of islands ?? []) {
+    if (isl.x0 <= roomRect.x0 + 0.01) touched.add('W');
+    if (isl.x1 >= roomRect.x1 - 0.01) touched.add('E');
+    if (isl.z0 <= roomRect.z0 + 0.01) touched.add('N');
+    if (isl.z1 >= roomRect.z1 - 0.01) touched.add('S');
+  }
+  const free = SIDES.filter((side) => !touched.has(side));
+  const side = rng.pick(free.length ? free : [...SIDES]);
+  return { side, count: Math.max(2, Math.ceil(depth / 0.45)), rise: 0.45, run: 0.55 };
+}
+
 /** Floor drains and wall pipes give every basin industrial variety. */
 function basinDrains(basinRect, rng) {
   const drains = [];
@@ -273,6 +288,7 @@ function makeFeatures(type, r, rng) {
   if (type === 'colonnade') {
     const basin = insetAsym(r, rng, 2.8, 1.2);
     f.basins.push({ rect: basin, depth: 1.5, level: -0.25, mouths: [], drains: basinDrains(basin, rng), stairs: null });
+    const colonnadeBasin = f.basins[f.basins.length - 1];
     const cols = rng.int(2, 3);
     const rows = rng.int(3, 4);
     for (let i = 0; i < cols; i += 1) {
@@ -290,6 +306,7 @@ function makeFeatures(type, r, rng) {
     if (side === 'S') f.islands.push(rect(u - width / 2, basin.z1 - (basin.z1 - basin.z0) * reach, u + width / 2, r.z1));
     if (side === 'W') f.islands.push(rect(r.x0, u - width / 2, basin.x0 + (basin.x1 - basin.x0) * reach, u + width / 2));
     if (side === 'E') f.islands.push(rect(basin.x1 - (basin.x1 - basin.x0) * reach, u - width / 2, r.x1, u + width / 2));
+    colonnadeBasin.stairs = basinSteps(r, f.islands, colonnadeBasin.depth, rng, [side, OPPOSITE[side]]);
     f.decor.handrails = [OPPOSITE[side]];
     f.decor.lifebuoys = rng.chance(0.5) ? rng.pick(SIDES) : null;
     f.decor.pipes.inflow = rng.chance(0.5) ? { side: rng.pick(SIDES), u: rng.range(0.3, 0.7) } : null;
@@ -298,8 +315,10 @@ function makeFeatures(type, r, rng) {
   if (type === 'rotunda') {
     const basin = insetAsym(r, rng, 2.5, 0.6);
     f.basins.push({ rect: basin, depth: 0.85, level: -0.14, mouths: [], drains: basinDrains(basin, rng), stairs: null });
+    const rotundaBasin = f.basins[f.basins.length - 1];
     const [cx, cz] = center(r);
     f.pillars.push({ shape: 'circle', x: cx, z: cz, r: rng.range(0.85, 1.15) });
+    rotundaBasin.stairs = basinSteps(r, f.islands, rotundaBasin.depth, rng);
     f.decor.oculus = true;
     f.decor.windows = rng.pick(SIDES);
   }
@@ -347,6 +366,7 @@ function makeFeatures(type, r, rng) {
   if (type === 'lanePool') {
     const basin = insetAsym(r, rng, 2.8, 1.0);
     f.basins.push({ rect: basin, depth: 1.6, level: -0.3, mouths: [], drains: basinDrains(basin, rng), stairs: null });
+    const laneBasin = f.basins[f.basins.length - 1];
     if (w >= h) {
       const u = r.z0 + h * rng.range(0.42, 0.58);
       f.islands.push(rect(r.x0, u - 1.2, r.x1, u + 1.2));
@@ -354,6 +374,7 @@ function makeFeatures(type, r, rng) {
       const u = r.x0 + w * rng.range(0.42, 0.58);
       f.islands.push(rect(u - 1.2, r.z0, u + 1.2, r.z1));
     }
+    laneBasin.stairs = basinSteps(r, f.islands, laneBasin.depth, rng);
     f.decor.slopedCeiling = rng.pick(SIDES);
     f.decor.windows = f.decor.slopedCeiling;
     f.decor.pipes.inflow = rng.chance(0.5) ? { side: rng.pick(SIDES), u: rng.range(0.3, 0.7) } : null;
@@ -859,9 +880,18 @@ export function generateLevel({ seed = 1, roomCount = 7 } = {}) {
     const lowerRoom = lower.rooms.find((room) => room.type === 'stairwell' && !room.features.stairwell);
     const upperRoom = upper.rooms.find((room) => room.type === 'stairwell' && !room.features.stairwell);
     if (!lowerRoom || !upperRoom) return;
+    // Snapshot: a half-built pair (stairs up with no hatch down, or a hatch
+    // with no stairs) would leave "stairs to nowhere", so roll both rooms
+    // back and let the unpaired-stairwell pass turn them into mini pools.
+    const snapLower = structuredClone(lowerRoom.features);
+    const snapUpper = structuredClone(upperRoom.features);
     placeStairwell(lowerRoom, 'up', rng);
     placeStairwell(upperRoom, 'down', rng);
-    if (lowerRoom.features.stairwell.variant !== 'up' || upperRoom.features.stairwell.variant !== 'down') return;
+    if (lowerRoom.features.stairwell.variant !== 'up' || upperRoom.features.stairwell.variant !== 'down') {
+      lowerRoom.features = snapLower;
+      upperRoom.features = snapUpper;
+      return;
+    }
     const zone = lowerRoom.features.stairwell.zone;
     const hole = upperRoom.features.stairwell.hole;
     const [hx, hz] = center(hole);

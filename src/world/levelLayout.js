@@ -112,7 +112,8 @@ function basinGround(basin, x, z) {
   if (stairs.side === 'W') distance = x - r.x0;
   if (distance === null || distance < 0 || distance >= stairs.count * stairs.run) return -basin.depth;
   const step = Math.min(stairs.count - 1, Math.floor(distance / stairs.run));
-  return -(step + 1) * stairs.rise;
+  // Steps deeper than the basin floor clamp to the floor (no phantom pits).
+  return Math.max(-(step + 1) * stairs.rise, -basin.depth);
 }
 
 function stairRunGround(run, x, z) {
@@ -175,6 +176,31 @@ export class LevelCollider {
       }
     }
     this.water = level.waterBodies;
+
+    // Handrails and hatch railings are solid: decorative rails must still
+    // stop the player from walking off the deck into a basin or a shaft.
+    // Kept out of `walls` so builders never render them as wall quads.
+    this.rails = [];
+    for (const room of level.rooms) {
+      const f = room.features;
+      for (const basin of f.basins) {
+        for (const side of f.decor.handrails ?? []) {
+          const r = basin.rect;
+          const o = 0.18;
+          if (side === 'N') this.rails.push({ x0: r.x0, z0: r.z0 - o, x1: r.x1, z1: r.z0 - o });
+          if (side === 'S') this.rails.push({ x0: r.x0, z0: r.z1 + o, x1: r.x1, z1: r.z1 + o });
+          if (side === 'W') this.rails.push({ x0: r.x0 - o, z0: r.z0, x1: r.x0 - o, z1: r.z1 });
+          if (side === 'E') this.rails.push({ x0: r.x1 + o, z0: r.z0, x1: r.x1 + o, z1: r.z1 });
+        }
+      }
+      for (const hole of f.holes) {
+        const r = hole.rect;
+        const o = 0.12;
+        this.rails.push({ x0: r.x0, z0: r.z1 + o, x1: r.x1, z1: r.z1 + o });
+        this.rails.push({ x0: r.x1 + o, z0: r.z0, x1: r.x1 + o, z1: r.z1 });
+        this.rails.push({ x0: r.x0 - o, z0: r.z0, x1: r.x0 - o, z1: r.z1 });
+      }
+    }
   }
 
   rectAt(x, z) {
@@ -216,6 +242,9 @@ export class LevelCollider {
     if (!this.rectAt(x, z)) return false;
     for (const wall of this.walls) {
       if (pointSegmentDistance(x, z, wall.x0, wall.z0, wall.x1, wall.z1) < radius - 1e-9) return false;
+    }
+    for (const rail of this.rails) {
+      if (pointSegmentDistance(x, z, rail.x0, rail.z0, rail.x1, rail.z1) < radius - 1e-9) return false;
     }
     for (const pillar of this.pillars) {
       if (Math.hypot(x - pillar.x, z - pillar.z) < pillar.r + radius - 1e-9) return false;

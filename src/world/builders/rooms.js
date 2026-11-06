@@ -19,14 +19,46 @@ function usOnSide(r, side, count, margin = 3) {
   return Array.from({ length: count }, (_, i) => span[0] + ((i + 0.5) / count) * (span[1] - span[0]));
 }
 
+/** Wall spans free of doorways (with a margin), for wall-mounted decor. */
+function freeSpans(r, side, margin, doors, doorMargin = 0.7) {
+  const [s0, s1] = side === 'N' || side === 'S' ? [r.x0, r.x1] : [r.z0, r.z1];
+  const cuts = doors.filter((door) => door.side === side).map((door) => [door.u0 - doorMargin, door.u1 + doorMargin]);
+  let pieces = [[s0 + margin, s1 - margin]];
+  for (const [c0, c1] of cuts) {
+    const next = [];
+    for (const [p0, p1] of pieces) {
+      if (c1 <= p0 || c0 >= p1) { next.push([p0, p1]); continue; }
+      if (c0 > p0) next.push([p0, c0]);
+      if (c1 < p1) next.push([c1, p1]);
+    }
+    pieces = next;
+  }
+  return pieces.filter(([p0, p1]) => p1 - p0 > 1.4);
+}
+
+/** Evenly spread `count` decor spots over doorway-free wall spans. */
+function usOnFreeSpans(r, side, count, margin, doors) {
+  const us = [];
+  for (const [a, b] of freeSpans(r, side, margin, doors)) {
+    const n = Math.min(count - us.length, Math.max(1, Math.floor((b - a) / 2.4)));
+    for (let i = 0; i < n && us.length < count; i += 1) us.push(a + ((i + 0.5) / n) * (b - a));
+  }
+  return us;
+}
+
 /** Builds one room archetype into `group`. `walls` are this room's segments. */
 export function buildRoom(group, room, walls, materials) {
   const r = room.rect;
   const f = room.features;
   const basin = f.basins[0] ?? null;
 
-  // Deck floor: room rect minus basin and hatch holes.
-  const holes = [...f.basins.map((b) => b.rect), ...f.holes.map((h) => h.rect)];
+  // Deck floor: room rect minus basins, hatch holes and islands (islands
+  // carry their own top at deck level; overlapping planes would z-fight).
+  const holes = [
+    ...f.basins.map((b) => b.rect),
+    ...f.holes.map((h) => h.rect),
+    ...f.islands.map((i) => i)
+  ];
   const deckPieces = subtractRects(r, holes);
   for (const piece of deckPieces) floorRect(group, piece, 0, materials.deck);
   for (const hole of f.holes) hatchShaft(group, hole.rect, hole.depth, materials);
@@ -89,10 +121,14 @@ export function buildRoom(group, room, walls, materials) {
 
   // Decor.
   if (f.decor.niches) {
-    for (const u of usOnSide(r, f.decor.niches, 3)) niche(group, f.decor.niches, sideLine(r, f.decor.niches), u, materials);
+    for (const u of usOnFreeSpans(r, f.decor.niches, 3, 3, room.doors)) {
+      niche(group, f.decor.niches, sideLine(r, f.decor.niches), u, materials);
+    }
   }
   if (f.decor.lifebuoys) {
-    for (const u of usOnSide(r, f.decor.lifebuoys, 2, 4)) lifebuoy(group, f.decor.lifebuoys, sideLine(r, f.decor.lifebuoys), u, materials);
+    for (const u of usOnFreeSpans(r, f.decor.lifebuoys, 2, 4, room.doors)) {
+      lifebuoy(group, f.decor.lifebuoys, sideLine(r, f.decor.lifebuoys), u, materials);
+    }
   }
   if (basin && f.decor.handrails) {
     for (const side of f.decor.handrails) handrailEdge(group, basin.rect, side, materials.metal);
@@ -100,7 +136,7 @@ export function buildRoom(group, room, walls, materials) {
   if (f.decor.ceilingStrip) {
     const strip = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(14, (r.x1 - r.x0) * 0.6), 0.9), materials.stripLight);
     strip.rotation.x = Math.PI / 2;
-    strip.position.set((r.x0 + r.x1) / 2, room.height - 0.01, (r.z0 + r.z1) / 2);
+    strip.position.set((r.x0 + r.x1) / 2, room.height - 0.04, (r.z0 + r.z1) / 2);
     group.add(strip);
   }
   if (f.decor.windows && !f.decor.slopedCeiling) {

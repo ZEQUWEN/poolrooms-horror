@@ -73,3 +73,71 @@ test('all room and corridor types build at least once', () => {
   assert.ok(builtRooms.size >= 4, `room types built: ${[...builtRooms]}`);
   assert.ok(builtCorridors.size >= 3, `corridor types built: ${[...builtCorridors]}`);
 });
+
+test('corridor floors and ceilings never poke into room footprints', () => {
+  for (let seed = 1; seed <= 6; seed += 1) {
+    const level = generateLevel({ seed, roomCount: 8 });
+    const builder = new LevelBuilder(level);
+    level.floors.forEach((floor, floorIndex) => {
+      const floorGroup = builder.group.children[floorIndex];
+      for (const child of floorGroup.children) {
+        const corridor = floor.corridors.find((c) => c.id === child.name);
+        if (!corridor) continue;
+        child.traverse((obj) => {
+          if (!obj.isMesh || !obj.geometry.parameters?.width) return;
+          const { width, height } = obj.geometry.parameters;
+          const isFloor = Math.abs(obj.position.y) < 1e-6 && Math.abs(obj.rotation.x + Math.PI / 2) < 1e-6;
+          const isCeil = Math.abs(obj.position.y - corridor.height) < 1e-6 && Math.abs(obj.rotation.x - Math.PI / 2) < 1e-6;
+          if (!isFloor && !isCeil) return;
+          const rect = {
+            x0: obj.position.x - width / 2, z0: obj.position.z - height / 2,
+            x1: obj.position.x + width / 2, z1: obj.position.z + height / 2
+          };
+          for (const room of floor.rooms) {
+            const r = room.rect;
+            const overlap = Math.min(rect.x1, r.x1) - Math.max(rect.x0, r.x0) > 0.05
+              && Math.min(rect.z1, r.z1) - Math.max(rect.z0, r.z0) > 0.05;
+            assert.equal(overlap, false, `seed ${seed}: ${corridor.id} ${isFloor ? 'floor' : 'ceiling'} pokes into ${room.id}`);
+          }
+        });
+      }
+    });
+  }
+});
+
+test('handrails and hatch railings are solid: no falling through decorated edges', () => {
+  let railed = 0;
+  let open = 0;
+  for (const seed of [1, 3, 7, 99]) {
+    const level = generateLevel({ seed, roomCount: 7 });
+    const builder = new LevelBuilder(level);
+    for (const floor of level.floors) {
+      for (const room of floor.rooms) {
+        const basin = room.features.basins[0];
+        if (!basin) continue;
+        const rails = room.features.decor.handrails ?? [];
+        const r = basin.rect;
+        const cx = (r.x0 + r.x1) / 2;
+        const cz = (r.z0 + r.z1) / 2;
+        const pointAt = (side) => ({
+          N: { x: cx, z: r.z0 - 0.05 }, S: { x: cx, z: r.z1 + 0.05 },
+          W: { x: r.x0 - 0.05, z: cz }, E: { x: r.x1 + 0.05, z: cz }
+        })[side];
+        for (const side of rails) {
+          const p = pointAt(side);
+          assert.equal(builder.canStand(p.x, p.z, 0.35, floor.index), false,
+            `seed ${seed} ${room.id} ${side}: handrail is not solid`);
+          railed += 1;
+        }
+        if (basin.stairs) {
+          const p = pointAt(basin.stairs.side);
+          assert.equal(builder.canStand(p.x, p.z, 0.35, floor.index), true,
+            `seed ${seed} ${room.id}: steps side blocked`);
+          open += 1;
+        }
+      }
+    }
+  }
+  assert.ok(railed >= 4, `too few railed sides checked: ${railed}`);
+  assert.ok(open >= 4, `too few step sides checked: ${open}`);
+});

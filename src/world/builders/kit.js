@@ -125,6 +125,7 @@ export function basinShell(group, basin, material) {
   const { stairs } = basin;
   for (let step = 0; step < stairs.count; step += 1) {
     const top = -(step + 1) * stairs.rise;
+    if (top <= -basin.depth + 0.02) break; // step would sink below the floor
     const near = step * stairs.run;
     const far = near + stairs.run;
     let tread; let riser; let riserRot; let sideA; let sideB;
@@ -247,24 +248,39 @@ function addRail(group, a, b, height, material) {
   }
 }
 
-/** Recessed wall niche with a warm lamp (ref 1). */
+/** Wall niche with a warm lamp (ref 1): a dark panel flush with the tiles,
+ *  a thin metal frame and a lamp sphere — nothing protrudes, so the niche
+ *  never reads as a black card floating in doorways or corners. */
 export function niche(group, side, wallLine, u, materials, y = 2.1) {
-  const depth = 0.14;
   const w = 0.9;
   const h = 1.5;
-  const inward = side === 'N' ? 1 : side === 'S' ? -1 : 0;
-  const inwardX = side === 'W' ? 1 : side === 'E' ? -1 : 0;
-  const px = side === 'N' || side === 'S' ? u : wallLine + inwardX * (depth / 2 + 0.01);
-  const pz = side === 'N' || side === 'S' ? wallLine + inward * (depth / 2 + 0.01) : u;
-  const box = new THREE.Mesh(new THREE.BoxGeometry(side === 'N' || side === 'S' ? w : depth, h, side === 'N' || side === 'S' ? depth : w), materials.dark);
-  box.position.set(px, y, pz);
-  group.add(box);
+  const alongX = side === 'N' || side === 'S';
+  const dir = side === 'N' || side === 'W' ? 1 : -1;
+  const nx = alongX ? 0 : dir;
+  const nz = alongX ? dir : 0;
+  const px = alongX ? u : wallLine;
+  const pz = alongX ? wallLine : u;
+  const rotY = side === 'S' ? Math.PI : side === 'W' ? Math.PI / 2 : side === 'E' ? -Math.PI / 2 : 0;
+
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(w, h), materials.dark);
+  back.position.set(px + nx * 0.02, y, pz + nz * 0.02);
+  back.rotation.y = rotY;
+  group.add(back);
+
+  const t = 0.09;
+  const frame = [
+    [w + t, t, 0, h / 2], [w + t, t, 0, -h / 2],
+    [t, h + t, -w / 2, 0], [t, h + t, w / 2, 0]
+  ];
+  for (const [bw, bh, du, dy] of frame) {
+    const bar = new THREE.Mesh(new THREE.PlaneGeometry(bw, bh), materials.metal);
+    bar.position.set(px + nx * 0.035 + (alongX ? du : 0), y + dy, pz + nz * 0.035 + (alongX ? 0 : du));
+    bar.rotation.y = rotY;
+    group.add(bar);
+  }
+
   const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), materials.lampLight);
-  lamp.position.set(
-    side === 'N' || side === 'S' ? u : wallLine + inwardX * (depth + 0.1),
-    y + 0.2,
-    side === 'N' || side === 'S' ? wallLine + inward * (depth + 0.1) : u
-  );
+  lamp.position.set(px + nx * 0.14, y + 0.2, pz + nz * 0.14);
   group.add(lamp);
 }
 

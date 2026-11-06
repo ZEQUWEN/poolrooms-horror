@@ -67,6 +67,11 @@ Room archetypes: `poolHall`, `colonnade`, `rotunda`, `grandStair`, `lanePool`,
 corner risers for industrial variety. See `docs/AUDIT.md` for the layout-logic
 screening report.
 
+Solidity details: basin handrails and hatch railings are real collision
+(the player cannot walk through a railing into the water or a shaft), every
+basin has an exit, and corridor pipe runs always terminate logically —
+elbows at turns, vertical risers into the ceiling where a run ends.
+
 Lighting is procedural too. Every room gets a seeded light plan: a ceiling
 light (sometimes a dying, flickering fluorescent), secondary panel/strip
 fixtures built as real geometry with matching point lights, underwater pool
