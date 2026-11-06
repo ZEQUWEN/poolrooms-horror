@@ -125,6 +125,7 @@ export function basinShell(group, basin, material) {
   const { stairs } = basin;
   for (let step = 0; step < stairs.count; step += 1) {
     const top = -(step + 1) * stairs.rise;
+    if (top <= -basin.depth + 0.02) break; // step would sink below the floor
     const near = step * stairs.run;
     const far = near + stairs.run;
     let tread; let riser; let riserRot; let sideA; let sideB;

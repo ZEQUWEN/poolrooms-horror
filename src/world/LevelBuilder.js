@@ -41,7 +41,7 @@ export class LevelBuilder {
       for (const corridor of floor.corridors) {
         const corridorGroup = new THREE.Group();
         corridorGroup.name = corridor.id;
-        buildCorridor(corridorGroup, corridor, collider.walls, this.materials);
+        buildCorridor(corridorGroup, corridor, collider.walls, this.materials, floor.rooms);
         floorGroup.add(corridorGroup);
       }
 

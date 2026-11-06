@@ -73,3 +73,34 @@ test('all room and corridor types build at least once', () => {
   assert.ok(builtRooms.size >= 4, `room types built: ${[...builtRooms]}`);
   assert.ok(builtCorridors.size >= 3, `corridor types built: ${[...builtCorridors]}`);
 });
+
+test('corridor floors and ceilings never poke into room footprints', () => {
+  for (let seed = 1; seed <= 6; seed += 1) {
+    const level = generateLevel({ seed, roomCount: 8 });
+    const builder = new LevelBuilder(level);
+    level.floors.forEach((floor, floorIndex) => {
+      const floorGroup = builder.group.children[floorIndex];
+      for (const child of floorGroup.children) {
+        const corridor = floor.corridors.find((c) => c.id === child.name);
+        if (!corridor) continue;
+        child.traverse((obj) => {
+          if (!obj.isMesh || !obj.geometry.parameters?.width) return;
+          const { width, height } = obj.geometry.parameters;
+          const isFloor = Math.abs(obj.position.y) < 1e-6 && Math.abs(obj.rotation.x + Math.PI / 2) < 1e-6;
+          const isCeil = Math.abs(obj.position.y - corridor.height) < 1e-6 && Math.abs(obj.rotation.x - Math.PI / 2) < 1e-6;
+          if (!isFloor && !isCeil) return;
+          const rect = {
+            x0: obj.position.x - width / 2, z0: obj.position.z - height / 2,
+            x1: obj.position.x + width / 2, z1: obj.position.z + height / 2
+          };
+          for (const room of floor.rooms) {
+            const r = room.rect;
+            const overlap = Math.min(rect.x1, r.x1) - Math.max(rect.x0, r.x0) > 0.05
+              && Math.min(rect.z1, r.z1) - Math.max(rect.z0, r.z0) > 0.05;
+            assert.equal(overlap, false, `seed ${seed}: ${corridor.id} ${isFloor ? 'floor' : 'ceiling'} pokes into ${room.id}`);
+          }
+        });
+      }
+    });
+  }
+});

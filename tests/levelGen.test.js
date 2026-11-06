@@ -248,3 +248,26 @@ test('light specs carry kind, priority and finite positions', () => {
     assert.ok(kinds.has(kind), `light kind ${kind} never generated`);
   }
 });
+
+test('every basin can be climbed out: submerged steps or a monumental stair', () => {
+  for (const seed of [1, 7, 99, 1234, 55555]) {
+    for (const floor of allFloors(generateLevel({ seed, roomCount: 7 }))) {
+      for (const room of floor.rooms) {
+        for (const basin of room.features.basins) {
+          const byRun = room.features.stairRuns.some((run) => intersects(run.rect, basin.rect));
+          assert.ok(basin.stairs || byRun, `${room.id}: basin with no way out`);
+          if (!basin.stairs) continue;
+          const { side, count, rise } = basin.stairs;
+          assert.ok(count >= 2 && rise > 0 && basin.stairs.run > 0, `${room.id}: bad steps`);
+          assert.ok(count * rise >= basin.depth - 0.5, `${room.id}: steps too short for depth`);
+          // Steps must not hide behind an island that hugs the same wall.
+          const blocked = room.features.islands.some((isl) => (side === 'W' && isl.x0 <= room.rect.x0 + 0.01)
+            || (side === 'E' && isl.x1 >= room.rect.x1 - 0.01)
+            || (side === 'N' && isl.z0 <= room.rect.z0 + 0.01)
+            || (side === 'S' && isl.z1 >= room.rect.z1 - 0.01));
+          assert.equal(blocked, false, `${room.id}: steps behind an island`);
+        }
+      }
+    }
+  }
+});

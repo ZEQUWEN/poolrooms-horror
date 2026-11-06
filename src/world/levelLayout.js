@@ -112,7 +112,8 @@ function basinGround(basin, x, z) {
   if (stairs.side === 'W') distance = x - r.x0;
   if (distance === null || distance < 0 || distance >= stairs.count * stairs.run) return -basin.depth;
   const step = Math.min(stairs.count - 1, Math.floor(distance / stairs.run));
-  return -(step + 1) * stairs.rise;
+  // Steps deeper than the basin floor clamp to the floor (no phantom pits).
+  return Math.max(-(step + 1) * stairs.rise, -basin.depth);
 }
 
 function stairRunGround(run, x, z) {

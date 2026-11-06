@@ -25,8 +25,13 @@ export function buildRoom(group, room, walls, materials) {
   const f = room.features;
   const basin = f.basins[0] ?? null;
 
-  // Deck floor: room rect minus basin and hatch holes.
-  const holes = [...f.basins.map((b) => b.rect), ...f.holes.map((h) => h.rect)];
+  // Deck floor: room rect minus basins, hatch holes and islands (islands
+  // carry their own top at deck level; overlapping planes would z-fight).
+  const holes = [
+    ...f.basins.map((b) => b.rect),
+    ...f.holes.map((h) => h.rect),
+    ...f.islands.map((i) => i)
+  ];
   const deckPieces = subtractRects(r, holes);
   for (const piece of deckPieces) floorRect(group, piece, 0, materials.deck);
   for (const hole of f.holes) hatchShaft(group, hole.rect, hole.depth, materials);
@@ -100,7 +105,7 @@ export function buildRoom(group, room, walls, materials) {
   if (f.decor.ceilingStrip) {
     const strip = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(14, (r.x1 - r.x0) * 0.6), 0.9), materials.stripLight);
     strip.rotation.x = Math.PI / 2;
-    strip.position.set((r.x0 + r.x1) / 2, room.height - 0.01, (r.z0 + r.z1) / 2);
+    strip.position.set((r.x0 + r.x1) / 2, room.height - 0.04, (r.z0 + r.z1) / 2);
     group.add(strip);
   }
   if (f.decor.windows && !f.decor.slopedCeiling) {
