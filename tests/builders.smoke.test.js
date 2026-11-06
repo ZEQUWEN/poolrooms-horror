@@ -104,3 +104,40 @@ test('corridor floors and ceilings never poke into room footprints', () => {
     });
   }
 });
+
+test('handrails and hatch railings are solid: no falling through decorated edges', () => {
+  let railed = 0;
+  let open = 0;
+  for (const seed of [1, 3, 7, 99]) {
+    const level = generateLevel({ seed, roomCount: 7 });
+    const builder = new LevelBuilder(level);
+    for (const floor of level.floors) {
+      for (const room of floor.rooms) {
+        const basin = room.features.basins[0];
+        if (!basin) continue;
+        const rails = room.features.decor.handrails ?? [];
+        const r = basin.rect;
+        const cx = (r.x0 + r.x1) / 2;
+        const cz = (r.z0 + r.z1) / 2;
+        const pointAt = (side) => ({
+          N: { x: cx, z: r.z0 - 0.05 }, S: { x: cx, z: r.z1 + 0.05 },
+          W: { x: r.x0 - 0.05, z: cz }, E: { x: r.x1 + 0.05, z: cz }
+        })[side];
+        for (const side of rails) {
+          const p = pointAt(side);
+          assert.equal(builder.canStand(p.x, p.z, 0.35, floor.index), false,
+            `seed ${seed} ${room.id} ${side}: handrail is not solid`);
+          railed += 1;
+        }
+        if (basin.stairs) {
+          const p = pointAt(basin.stairs.side);
+          assert.equal(builder.canStand(p.x, p.z, 0.35, floor.index), true,
+            `seed ${seed} ${room.id}: steps side blocked`);
+          open += 1;
+        }
+      }
+    }
+  }
+  assert.ok(railed >= 4, `too few railed sides checked: ${railed}`);
+  assert.ok(open >= 4, `too few step sides checked: ${open}`);
+});

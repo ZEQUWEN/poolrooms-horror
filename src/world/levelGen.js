@@ -102,9 +102,10 @@ function insetAsym(r, rng, minMargin, jitter) {
   );
 }
 
-/** Submerged steps so every basin can be waded into AND climbed out of. */
-function basinSteps(roomRect, islands, depth, rng) {
-  const touched = new Set();
+/** Submerged steps so every basin can be waded into AND climbed out of.
+ *  `busySides` are walls the steps must avoid (islands, handrails). */
+function basinSteps(roomRect, islands, depth, rng, busySides = []) {
+  const touched = new Set(busySides);
   for (const isl of islands ?? []) {
     if (isl.x0 <= roomRect.x0 + 0.01) touched.add('W');
     if (isl.x1 >= roomRect.x1 - 0.01) touched.add('E');
@@ -305,7 +306,7 @@ function makeFeatures(type, r, rng) {
     if (side === 'S') f.islands.push(rect(u - width / 2, basin.z1 - (basin.z1 - basin.z0) * reach, u + width / 2, r.z1));
     if (side === 'W') f.islands.push(rect(r.x0, u - width / 2, basin.x0 + (basin.x1 - basin.x0) * reach, u + width / 2));
     if (side === 'E') f.islands.push(rect(basin.x1 - (basin.x1 - basin.x0) * reach, u - width / 2, r.x1, u + width / 2));
-    colonnadeBasin.stairs = basinSteps(r, f.islands, colonnadeBasin.depth, rng);
+    colonnadeBasin.stairs = basinSteps(r, f.islands, colonnadeBasin.depth, rng, [side, OPPOSITE[side]]);
     f.decor.handrails = [OPPOSITE[side]];
     f.decor.lifebuoys = rng.chance(0.5) ? rng.pick(SIDES) : null;
     f.decor.pipes.inflow = rng.chance(0.5) ? { side: rng.pick(SIDES), u: rng.range(0.3, 0.7) } : null;
@@ -879,9 +880,18 @@ export function generateLevel({ seed = 1, roomCount = 7 } = {}) {
     const lowerRoom = lower.rooms.find((room) => room.type === 'stairwell' && !room.features.stairwell);
     const upperRoom = upper.rooms.find((room) => room.type === 'stairwell' && !room.features.stairwell);
     if (!lowerRoom || !upperRoom) return;
+    // Snapshot: a half-built pair (stairs up with no hatch down, or a hatch
+    // with no stairs) would leave "stairs to nowhere", so roll both rooms
+    // back and let the unpaired-stairwell pass turn them into mini pools.
+    const snapLower = structuredClone(lowerRoom.features);
+    const snapUpper = structuredClone(upperRoom.features);
     placeStairwell(lowerRoom, 'up', rng);
     placeStairwell(upperRoom, 'down', rng);
-    if (lowerRoom.features.stairwell.variant !== 'up' || upperRoom.features.stairwell.variant !== 'down') return;
+    if (lowerRoom.features.stairwell.variant !== 'up' || upperRoom.features.stairwell.variant !== 'down') {
+      lowerRoom.features = snapLower;
+      upperRoom.features = snapUpper;
+      return;
+    }
     const zone = lowerRoom.features.stairwell.zone;
     const hole = upperRoom.features.stairwell.hole;
     const [hx, hz] = center(hole);

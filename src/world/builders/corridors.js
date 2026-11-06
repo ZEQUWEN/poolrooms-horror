@@ -22,14 +22,19 @@ function subtractSpans(span, cuts) {
   return pieces.filter(([p0, p1]) => p1 - p0 > 0.05);
 }
 
-/** Shrink a rect at the ends whose overlap belongs to a room (the seam). */
-function clipSeamEnds(r, index, corridor) {
+/** Which ends of a rect stop short of a room wall (the seam overlaps). */
+function seamEndsOf(index, corridor) {
   const last = corridor.rects.length - 1;
   const single = index === 0 && index === last;
-  const ends = single
+  return single
     ? [SEAM_END[corridor.fromSide], SEAM_END[corridor.toSide]]
     : index === 0 ? [SEAM_END[corridor.fromSide]]
       : index === last ? [SEAM_END[corridor.toSide]] : [];
+}
+
+/** Shrink a rect at the ends whose overlap belongs to a room (the seam). */
+function clipSeamEnds(r, index, corridor) {
+  const ends = seamEndsOf(index, corridor);
   const cut = (name) => (ends.includes(name) ? SEAM_STOP : 0);
   return {
     x0: r.x0 + cut('xmin'),
@@ -137,9 +142,22 @@ function buildCeilingPipes(group, corridor, materials) {
     const off = index % 2 === 0 ? 0.55 : 0.85;
     const fixed = long ? r.z0 + off : r.x0 + off;
     lines.push({ axis: long ? 'x' : 'z', fixed, a });
-    for (const [y, radius] of [[corridor.height - 0.32, 0.09], [corridor.height - 0.54, 0.06]]) {
+    const pipeYs = [[corridor.height - 0.32, 0.09], [corridor.height - 0.54, 0.06]];
+    for (const [y, radius] of pipeYs) {
       if (long) pipeRun(group, [a, y, fixed], [b, y, fixed], radius, materials.metal);
       else pipeRun(group, [fixed, y, a], [fixed, y, b], radius, materials.metal);
+    }
+    // Finished pipe system: runs that stop short of a wall turn upward into
+    // the ceiling instead of dangling with open ends.
+    const ends = seamEndsOf(index, corridor);
+    const stoppedMin = ends.includes(long ? 'xmin' : 'zmin');
+    const stoppedMax = ends.includes(long ? 'xmax' : 'zmax');
+    for (const coord of [stoppedMin ? a : null, stoppedMax ? b : null]) {
+      if (coord === null) continue;
+      for (const [y] of pipeYs) {
+        if (long) pipeRun(group, [coord, y, fixed], [coord, corridor.height + 0.4, fixed], 0.07, materials.metal);
+        else pipeRun(group, [fixed, y, coord], [fixed, corridor.height + 0.4, coord], 0.07, materials.metal);
+      }
     }
   });
   // Elbow at the L-corner: stretch the second rect's pipes back onto the

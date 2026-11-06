@@ -271,3 +271,34 @@ test('every basin can be climbed out: submerged steps or a monumental stair', ()
     }
   }
 });
+
+test('stairwell up/down variants always come with a vertical connector', () => {
+  for (const seed of [1, 7, 99, 1234, 55555, 818181]) {
+    const level = generateLevel({ seed, roomCount: 7 });
+    for (const floor of level.floors) {
+      for (const room of floor.rooms) {
+        const variant = room.features.stairwell?.variant;
+        if (variant !== 'up' && variant !== 'down') continue;
+        const zone = room.features.stairwell.zone;
+        const conn = level.vertical.find((c) => c.floor === floor.index && c.type === variant
+          && (variant === 'up' ? c.rect === zone : intersects(c.rect, zone)));
+        assert.ok(conn, `seed ${seed}: ${room.id} has ${variant} stairs but no connector (stairs to nowhere)`);
+      }
+    }
+  }
+});
+
+test('basin steps never hide behind a handrail side', () => {
+  for (const seed of [1, 7, 99, 1234]) {
+    for (const floor of allFloors(generateLevel({ seed, roomCount: 7 }))) {
+      for (const room of floor.rooms) {
+        const rails = room.features.decor.handrails ?? [];
+        for (const basin of room.features.basins) {
+          if (!basin.stairs) continue;
+          assert.equal(rails.includes(basin.stairs.side), false,
+            `${room.id}: steps on railed side ${basin.stairs.side}`);
+        }
+      }
+    }
+  }
+});
